@@ -1,0 +1,39 @@
+device:
+  device_id: "rpi4-edge-001"
+  room_id: "test-room-001"
+  environment_type: "home"
+
+mqtt:
+  broker_host: "localhost"
+  broker_port: 1883
+  keepalive: 60
+  qos: 1
+  topics:
+    raw: "/sensor/raw"
+    processed: "/sensor/processed"
+    candidate: "/event/candidate"
+    status: "/system/status"
+    error: "/system/error"
+
+collector:
+  interval_sec: 1.0
+  mode: "mock"
+
+mock:
+  fall_probability: 0.12
+  normal_tof_min_mm: 900
+  normal_tof_max_mm: 1700
+  fall_tof_min_mm: 250
+  fall_tof_max_mm: 650
+  rssi_min: -75
+  rssi_max: -35
+
+thresholds:
+  tof_low_position_mm: 700
+  tof_drop_delta_mm: -300
+  csi_change_candidate: 0.75
+  abnormal_score_candidate: 2
+
+logging:
+  log_dir: "logs"
+  level: "INFO"
