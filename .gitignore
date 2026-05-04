@@ -1,0 +1,33 @@
+# Python virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs
+logs/*.log
+logs/*.log.*
+!logs/.gitkeep
+
+# Environment / secrets
+.env
+.env.*
+secrets.py
+*.key
+*.pem
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Test / temporary outputs
+*.tmp
+*.bak
+*.zip
