@@ -1,5 +1,3 @@
-# serial_reader.py 파일 내부
-
 import serial
 import time
 import numpy as np
