@@ -108,11 +108,9 @@ class CSIProcessor:
                 self.b, self.a, dynamic_amp[:, i], zi=self.zi[:, i]
             )
             
-        # ⭐ 특징(Feature) 추출 (연산이 매우 가벼운 Numpy 내장 함수 활용)
         self.last_variance = np.max(np.var(filtered_amp, axis=0))          # 1. 격렬함(분산)
         self.last_max_amp = np.max(np.abs(filtered_amp))                   # 2. 최대 튕김폭(진폭)
         
-        # np.diff는 배열 요소 간의 차이를 구해줌 -> 프레임 간 변화율(속도)
         diff_array = np.diff(filtered_amp, axis=0)
         self.last_max_diff = np.max(np.abs(diff_array)) if len(diff_array) > 0 else 0.0 # 3. 순간 최대 꺾임
         
