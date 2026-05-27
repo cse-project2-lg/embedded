@@ -18,7 +18,7 @@ def send_discord_notification(event_id, situation_summary):
     # 2. 디스코드에서 지원하는 Embed(정형화된 박스) 포맷 데이터 구성
     payload = {
         "username": "RPi4_Fall_Detector",  # 디스코드에 표시될 봇 이름
-        "avatar_url": "https://i.imgur.com/4M34gA0.png",  # 봇 프로필 이미지 (retro 픽셀 스타일)
+        "avatar_url": "https://github.com/cse-project2-lg/embedded/blob/feat/discord-notification/ganadi_emergency.png",  # 봇 프로필 이미지 (retro 픽셀 스타일)
         "embeds": [
             {
                 "title": "🚨 [🚨 응급 상황] 피보호자 안전 이상 감지",
