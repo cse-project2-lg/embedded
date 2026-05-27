@@ -12,7 +12,7 @@ def send_discord_notification(event_id, situation_summary):
     라즈베리파이 메인 코드에서 낙상 감지 시 호출할 독립 알림 함수
     """
     if not WEBHOOK_URL:
-        print("❌ 에러: .env 파일에 DISCORD_WEBHOOK_URL이 설정되지 않았습니다.")
+        print("에러: .env 파일에 DISCORD_WEBHOOK_URL이 설정되지 않았습니다.")
         return
 
     # 2. 디스코드에서 지원하는 Embed(정형화된 박스) 포맷 데이터 구성
@@ -43,13 +43,13 @@ def send_discord_notification(event_id, situation_summary):
         
         # 디스코드 웹훅의 전송 성공 HTTP 상태 코드는 204(No Content)입니다.
         if response.status_code == 204:
-            print("✅ 디스코드 보호자 관제 채널로 비상 알림 전송 성공!")
+            print("디스코드 보호자 관제 채널로 비상 알림 전송 성공!")
         else:
-            print(f"❌ 전송 실패 (HTTP 상태 코드: {response.status_code})")
+            print(f"전송 실패 (HTTP 상태 코드: {response.status_code})")
             print(response.text)
             
     except Exception as e:
-        print(f"🔥 네트워크 단절 또는 요청 에러 발생: {e}")
+        print(f"네트워크 단절 또는 요청 에러 발생: {e}")
 
 if __name__ == "__main__":
     # 통합 전 단독 작동 여부를 확인하기 위한 모의 가상 데이터 유입
