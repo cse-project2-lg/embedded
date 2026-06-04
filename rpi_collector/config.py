@@ -47,3 +47,17 @@ DEFAULT_NOTIFICATION_CHANNELS = [
     for channel in os.getenv("DEFAULT_NOTIFICATION_CHANNELS", "KAKAO,SMS").split(",")
     if channel.strip()
 ]
+
+# RPi Nexmon CSI raw stream.
+# /csi/raw is an internal raw MQTT topic for the preprocessing/synchronization team.
+TOPIC_CSI_RAW = os.getenv("TOPIC_CSI_RAW", "/csi/raw")
+CSI_UDP_BIND_HOST = os.getenv("CSI_UDP_BIND_HOST", "0.0.0.0")
+CSI_UDP_PORT = int(os.getenv("CSI_UDP_PORT", "5500"))
+CSI_INTERFACE = os.getenv("CSI_INTERFACE", "wlan0")
+CSI_RAW_LOG_DIR = os.getenv("CSI_RAW_LOG_DIR", "./data/csi_raw")
+CSI_MQTT_PUBLISH_ENABLED = os.getenv("CSI_MQTT_PUBLISH_ENABLED", "true").lower() in {"1", "true", "yes", "y"}
+CSI_MQTT_QOS = int(os.getenv("CSI_MQTT_QOS", "1"))
+
+# Combined raw MQTT subscriber logs. This is still communication/raw-ingress only,
+# not preprocessing or synchronization.
+MQTT_RAW_LOG_DIR = os.getenv("MQTT_RAW_LOG_DIR", "./data/mqtt_raw")
