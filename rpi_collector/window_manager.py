@@ -1,10 +1,7 @@
-from dataclasses import dataclass
 from collections import deque
 
 
 # Window 설정
-# - 7초 길이의 Window 생성
-# - 이전 Window와 2초 중첩
 WINDOW_SIZE_SEC = 7
 OVERLAP_SEC = 2
 
@@ -12,92 +9,101 @@ WINDOW_SIZE_NS = WINDOW_SIZE_SEC * 1_000_000_000
 STEP_SIZE_NS = (WINDOW_SIZE_SEC - OVERLAP_SEC) * 1_000_000_000
 
 
-@dataclass
-class DataWindow:
-    # Feature Extraction 단계로 전달되는 하나의 분석 구간(Window)
-
-    startTimestampNs: int
-    endTimestampNs: int
-
-    durationSec: float
-
-    sampleCount: int
-
-    samples: list
-
-
 class SlidingWindowManager:
-    # Timestamp 기반 Sliding Window 생성기
+    # Timestamp 기반 Sliding Window
     # Window Size : 7초
     # Overlap     : 2초
     # Step Size   : 5초
 
     def __init__(self):
 
-        # 최근 수신 데이터 저장 버퍼
-        self.buffer = deque()
+        self.csi_buffer = deque()
+        self.tof_buffer = deque()
+        self.pir_buffer = deque()
+        self.ts_buffer = deque()
 
-    def add_sample(self, sample):
+    def push(
+        self,
+        csi,
+        tof,
+        pir,
+        ts
+    ):
         """
-        전처리된 샘플 추가
+        전처리 완료된 샘플 추가
 
         Args:
-            sample:
-            {
-                "timestampNs": ...,
-                ...
-            }
-
-        Returns:
-            DataWindow 또는 None
+            csi : CSI Filtered Amplitude
+            tof : ToF Distance(mm)
+            pir : PIR Motion(bool)
+            ts  : timestamp(ns)
         """
 
-        self.buffer.append(sample)
+        self.csi_buffer.append(csi)
+        self.tof_buffer.append(tof)
+        self.pir_buffer.append(pir)
+        self.ts_buffer.append(ts)
 
-        # 최소 2개 이상 있어야 시간 계산 가능
-        if len(self.buffer) < 2:
-            return None
+    def window_ready(self):
+        # 7초 Window가 채워졌는지 확인
 
-        start_ts = self.buffer[0]["timestampNs"]
-        current_ts = self.buffer[-1]["timestampNs"]
+        if len(self.ts_buffer) < 2:
+            return False
 
-        # 아직 7초가 채워지지 않았으면 대기
-        if current_ts - start_ts < WINDOW_SIZE_NS:
-            return None
+        start_ts = self.ts_buffer[0]
+        current_ts = self.ts_buffer[-1]
 
-        return self._create_window()
-
-    def _create_window(self):
-        # 현재 버퍼 기준으로 Window 생성
-
-        start_ts = self.buffer[0]["timestampNs"]
-        end_ts = start_ts + WINDOW_SIZE_NS
-
-        samples = []
-
-        # Window 범위 내 데이터만 수집
-        for sample in self.buffer:
-
-            if sample["timestampNs"] <= end_ts:
-                samples.append(sample)
-
-        window = DataWindow(
-            startTimestampNs=start_ts,
-            endTimestampNs=end_ts,
-            durationSec=WINDOW_SIZE_SEC,
-            sampleCount=len(samples),
-            samples=samples
+        return (
+            current_ts - start_ts
+            >= WINDOW_SIZE_NS
         )
 
-        # 다음 Window 시작 위치 계산
-        # (7초 Window, 2초 중첩 → 5초 이동)
-        next_window_start = start_ts + STEP_SIZE_NS
+    def get_window(self):
+        # Window 추출 후 다음 Window를 위해 5초 만큼 이동
 
-        # 다음 Window에 필요 없는 과거 데이터 제거
+        start_ts = self.ts_buffer[0]
+        end_ts = start_ts + WINDOW_SIZE_NS
+
+        csi_window = []
+        tof_window = []
+        pir_window = []
+        ts_window = []
+
+        for i, ts in enumerate(self.ts_buffer):
+
+            if ts <= end_ts:
+
+                csi_window.append(
+                    self.csi_buffer[i]
+                )
+
+                tof_window.append(
+                    self.tof_buffer[i]
+                )
+
+                pir_window.append(
+                    self.pir_buffer[i]
+                )
+
+                ts_window.append(ts)
+
+        next_window_start = (
+            start_ts + STEP_SIZE_NS
+        )
+
         while (
-            self.buffer and
-            self.buffer[0]["timestampNs"] < next_window_start
+            self.ts_buffer
+            and
+            self.ts_buffer[0] < next_window_start
         ):
-            self.buffer.popleft()
+            self.csi_buffer.popleft()
+            self.tof_buffer.popleft()
+            self.pir_buffer.popleft()
+            self.ts_buffer.popleft()
 
-        return window
+        return (
+            csi_window,
+            tof_window,
+            pir_window,
+            ts_window
+        )
