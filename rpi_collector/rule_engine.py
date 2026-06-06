@@ -1,4 +1,5 @@
-from numbers import Number
+from numbers import Real
+import math
 
 class RuleEngine:
     """
@@ -52,16 +53,41 @@ class RuleEngine:
 
         for key in self.REQUIRED_FEATURE_KEYS:
 
-            if not isinstance(
-                features[key],
-                Number
+            value = features[key]
+
+            # bool 차단
+            if isinstance(
+                value,
+                bool
             ):
 
                 raise TypeError(
                     f"Feature '{key}' "
-                    f"must be numeric, "
+                    f"must not be bool"
+                )
+
+            # 실수/정수만 허용
+            if not isinstance(
+                value,
+                Real
+            ):
+
+                raise TypeError(
+                    f"Feature '{key}' "
+                    f"must be real number, "
                     f"got "
-                    f"{type(features[key]).__name__}"
+                    f"{type(value).__name__}"
+                )
+
+            # NaN, inf 차단
+            if not math.isfinite(
+                value
+            ):
+
+                raise ValueError(
+                    f"Feature '{key}' "
+                    f"must be finite, "
+                    f"got {value}"
                 )
 
         score = 0.0
