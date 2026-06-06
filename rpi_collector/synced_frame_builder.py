@@ -152,6 +152,7 @@ class SyncedFrameBuilder:
         self.sensor_buffer: Deque[Dict[str, Any]] = deque()
         self.previous_sensor_ns: Optional[Ns] = None
         self.frame_seq = 1
+        self.last_prune_ns = time.monotonic_ns()
 
     def ingest(self, enriched: Dict[str, Any]) -> None:
         topic = enriched.get("mqttTopic")
@@ -170,6 +171,22 @@ class SyncedFrameBuilder:
                 self.csi_buffer.popleft()
             else:
                 break
+
+    def prune_stale_csi(self, interval_sec: float = 1.0) -> None:
+        """Periodically drop stale CSI packets even when /sensor/raw stops.
+
+        If ESP32 sensor publishing goes offline while /csi/raw keeps arriving,
+        pruning only after ready sensors would let csi_buffer grow without bound.
+        """
+        now_ns = time.monotonic_ns()
+        interval_ns = int(interval_sec * 1_000_000_000)
+        if now_ns - self.last_prune_ns < interval_ns:
+            return
+
+        self.last_prune_ns = now_ns
+        oldest_keep_ns = now_ns - self.csi_retention_ns
+        with self.lock:
+            self.prune_old_csi(oldest_keep_ns)
 
     def emit_ready_frames(self) -> int:
         emitted = 0
@@ -352,6 +369,7 @@ def run_builder(args: argparse.Namespace) -> None:
 
     try:
         while running:
+            builder.prune_stale_csi()
             builder.emit_ready_frames()
             time.sleep(0.02)
     finally:
