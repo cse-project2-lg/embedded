@@ -1,3 +1,6 @@
 pyserial
 numpy
 scipy
+paho-mqtt
+requests
+python-dotenv

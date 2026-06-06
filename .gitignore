@@ -28,3 +28,5 @@ collected_data/
 *.swp
 *.swo
 *~
+rpi_collector/__pycache__/**
+.env
