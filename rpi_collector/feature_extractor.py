@@ -196,3 +196,34 @@ def extract_pir_features(
                 2
             )
     }
+
+
+def extract_window_features(
+    csi_window: List[np.ndarray],
+    tof_window: List[float],
+    pir_window: List[bool],
+    ts_window: List[int]
+) -> dict:
+    """
+    Window 단위 통합 특징 추출 및 Rule Engine 입력용 Feature Vector 생성
+    """
+
+    csi_features = extract_csi_features(
+        csi_window
+    )
+
+    tof_features = extract_tof_features(
+        tof_window,
+        ts_window
+    )
+
+    pir_features = extract_pir_features(
+        pir_window,
+        ts_window
+    )
+
+    return {
+        **csi_features,
+        **tof_features,
+        **pir_features
+    }
