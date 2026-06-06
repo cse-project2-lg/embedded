@@ -1,36 +1,204 @@
-# main_loop.py
-from preprocessor import ToFPreprocessor, CSIPreprocessor, process_synced_frame
-from feature_extractor import extract_window_features
+# IMPORT
+import json
+import paho.mqtt.client as mqtt
 
-# 전처리기 초기화
+from datetime import datetime
+
+from config import (
+    MQTT_HOST,
+    MQTT_PORT,
+    DEVICE_ID,
+    ROOM_ID,
+    TOPIC_EVENT_CANDIDATE
+)
+
+from preprocessor import (
+    ToFPreprocessor,
+    CSIPreprocessor,
+    process_synced_frame
+)
+
+from mqtt_subscriber import (
+    start_subscriber,
+    receive_frame
+)
+
+from window_manager import (
+    SlidingWindowManager
+)
+
+from feature_extractor import (
+    extract_window_features
+)
+
+from rule_engine import (
+    RuleEngine
+)
+
+from event_generator import (
+    EventCandidateGenerator
+)
+
+
+# MQTT PUBLISHER
+publisher = mqtt.Client()
+
+publisher.connect(
+    MQTT_HOST,
+    MQTT_PORT,
+    60
+)
+
+publisher.loop_start()
+
+# MQTT SUBSCRIBER
+
+subscriber = start_subscriber()
+
+
+# UTILS
+def iso_to_ns(
+    timestamp_str: str
+) -> int:
+    """
+    ISO8601 Timestamp
+        ↓
+    Unix Timestamp(ns)
+
+    Example:
+    2026-06-06T15:42:10.123+09:00
+        ↓
+    1780728130123000000
+    """
+
+    return int(
+        datetime.fromisoformat(
+            timestamp_str
+        ).timestamp()
+        * 1_000_000_000
+    )
+
+
+# COMPONENTS
+
 tof_pre = ToFPreprocessor()
 csi_pre = CSIPreprocessor()
+sync_buffer = SlidingWindowManager()
+rule_engine = RuleEngine()
+event_generator = EventCandidateGenerator()
+
+
+# MAIN LOOP
+print(
+    "[SYSTEM] Edge Fall Detection Pipeline Start"
+)
 
 while True:
-    # 1. /preprocess/synced_frame 토픽 수신
-    frame = mqtt_receive_synced_frame()
+    # 1. /preprocess/synced_frame 수신
+    frame = receive_frame()
 
-    # 2. 전처리 (ToF + CSI 동시, loader는 rawLogFile 기반으로 내부 자동 결정)
-    processed = process_synced_frame(frame, tof_pre, csi_pre)
+    # 2. 전처리 (ToF + CSI 동시 처리)
+    processed = process_synced_frame(
+        frame,
+        tof_pre,
+        csi_pre
+    )
 
-    # csiFilteredAmp 가 None 이면 pingOk=False 또는 유효 패킷 없음 → 스킵
-    if processed["csiFilteredAmp"] is None:
+    # CSI 데이터가 없으면 Skip
+
+    if (
+        processed["csiFilteredAmp"]
+        is None
+    ):
         continue
 
-    # 3. 동기화 버퍼에 적재
+    # 3. Timestamp 정규화
+    # ISO8601 → ns
+
+    timestamp_ns = iso_to_ns(
+        processed["timestamp"]
+    )
+
+    # 4. Sliding Window Buffer 적재
+
     sync_buffer.push(
         csi=processed["csiFilteredAmp"],
         tof=processed["tofDistanceMm"],
         pir=processed["pirMotion"],
-        ts=processed["timestamp"],
+        ts=timestamp_ns
     )
 
-    # 4. window 준비되면 특징 추출 + 1차 판정
-    if sync_buffer.window_ready():
-        csi_window, tof_window, pir_window, ts_window = sync_buffer.get_window()
+    # Window Size(7초)가 아직 채워지지 않은 경우 대기
+    if not sync_buffer.window_ready():
+        continue
 
-        features = extract_window_features(csi_window, tof_window, pir_window, ts_window)
-        result   = rule_engine.judge(features)
+    # 5. Window 생성(7초 Window + 2초 Overlap)
+    (
+        csi_window,
+        tof_window,
+        pir_window,
+        ts_window
+    ) = sync_buffer.get_window()
 
-        if result.state >= FALL_ANALYZING:
-            send_to_cloud(result)
+    # 6. Feature Extraction (CSI + ToF + PIR 특징 추출)
+
+    features = extract_window_features(
+        csi_window,
+        tof_window,
+        pir_window,
+        ts_window
+    )
+
+    # 7. Rule-Based 1차 판정
+    rule_result = rule_engine.judge(
+        features
+    )
+
+    # LOW 위험도는 Cloud 전송 생략
+    if (
+        rule_result[
+            "localRiskLevel"
+        ] == "LOW"
+    ):
+        continue
+
+    # 8. event.candidate 생성
+    event_candidate = (
+        event_generator.build(
+
+            features=features,
+
+            rule_result=rule_result,
+
+            ts_window=ts_window,
+
+            device_id=DEVICE_ID,
+
+            room_id=ROOM_ID,
+
+            csi_status="AVAILABLE"
+        )
+    )
+
+    # 9. MQTT Publish
+    # Cloud AI 분석 요청
+
+    publisher.publish(
+        TOPIC_EVENT_CANDIDATE,
+
+        json.dumps(
+            event_candidate
+        )
+    )
+
+    print(
+        "\n[EVENT CANDIDATE]"
+    )
+
+    print(
+        json.dumps(
+            event_candidate,
+            indent=2,
+            ensure_ascii=False
+        )
+    )
