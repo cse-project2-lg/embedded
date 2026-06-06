@@ -137,3 +137,62 @@ def extract_tof_features(
         "tofStableMs":
             round(stable_ms, 2)
     }
+
+
+def extract_pir_features(
+    pir_window: List[bool],
+    ts_window: List[int]
+) -> dict:
+    """
+    Window 단위 PIR 특징 추출
+    """
+
+    if not pir_window:
+
+        return {
+            "pirAnyMotion": False,
+            "pirSilentDuration": 0.0
+        }
+
+    any_motion = any(
+        pir_window
+    )
+
+    last_motion_idx = None
+
+    for i in range(
+        len(pir_window) - 1,
+        -1,
+        -1
+    ):
+
+        if pir_window[i]:
+
+            last_motion_idx = i
+            break
+
+    if last_motion_idx is not None:
+
+        silent_duration_ms = (
+            ts_window[-1]
+            - ts_window[last_motion_idx]
+        ) / 1_000_000
+
+    else:
+
+        silent_duration_ms = (
+            ts_window[-1]
+            - ts_window[0]
+        ) / 1_000_000
+
+    return {
+
+        "pirAnyMotion":
+            any_motion,
+
+        "pirSilentDuration":
+            round(
+                silent_duration_ms,
+                2
+            )
+    }
