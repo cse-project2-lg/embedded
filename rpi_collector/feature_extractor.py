@@ -6,7 +6,23 @@ def extract_csi_features(
     csi_window: List[np.ndarray]
 ) -> dict:
     """
-    Window 단위 CSI 특징 추출
+    CSI 특징 추출
+
+    Args:
+        csi_window:
+            CSIPreprocessor.process_chunk()
+            결과를 Window 단위로 저장한 리스트
+
+            각 원소 shape:
+            (time_steps, num_groups)
+
+    Returns:
+        {
+            "csiMaxVariance": float,
+            "csiMaxAmplitude": float,
+            "csiMaxDiff": float,
+            "csiPacketCount": int
+        }
     """
 
     if not csi_window:
@@ -74,7 +90,21 @@ def extract_tof_features(
     ts_window: List[int]
 ) -> dict:
     """
-    Window 단위 ToF 특징 추출
+    ToF 특징 추출
+
+    Args:
+        tof_window:
+            정제된 ToF 거리값(mm)
+
+        ts_window:
+            timestamp(ns)
+
+    Returns:
+        {
+            "tofMaxDrop": float,
+            "tofCurrentDistance": float,
+            "tofStableMs": float
+        }
     """
 
     if not tof_window:
@@ -90,18 +120,15 @@ def extract_tof_features(
         dtype=float
     )
 
-    # Window 내 최대 거리 변화량
     max_drop = float(
         np.max(arr)
         - np.min(arr)
     )
 
-    # 현재 거리
     current_distance = float(
         arr[-1]
     )
 
-    # 현재 위치가 얼마나 유지됐는지 계산
     stable_threshold_mm = 50
 
     stable_start_idx = len(arr) - 1
@@ -144,7 +171,20 @@ def extract_pir_features(
     ts_window: List[int]
 ) -> dict:
     """
-    Window 단위 PIR 특징 추출
+    PIR 특징 추출
+
+    Args:
+        pir_window:
+            PIR Motion 여부
+
+        ts_window:
+            timestamp(ns)
+
+    Returns:
+        {
+            "pirAnyMotion": bool,
+            "pirSilentDuration": float
+        }
     """
 
     if not pir_window:
@@ -205,7 +245,16 @@ def extract_window_features(
     ts_window: List[int]
 ) -> dict:
     """
-    Window 단위 통합 특징 추출 및 Rule Engine 입력용 Feature Vector 생성
+    Window 단위 통합 특징 추출
+
+    Rule Engine 입력용 Feature Vector 생성
+
+    Returns:
+        {
+            CSI Features,
+            ToF Features,
+            PIR Features
+        }
     """
 
     csi_features = extract_csi_features(
