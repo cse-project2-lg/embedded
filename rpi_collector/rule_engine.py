@@ -1,3 +1,5 @@
+from numbers import Number
+
 class RuleEngine:
     """
     Rule-Based Fall Candidate Detector
@@ -17,6 +19,12 @@ class RuleEngine:
     # TODO:
     # 실제 실험 데이터를 기반으로 튜닝 필요
 
+    REQUIRED_FEATURE_KEYS = (
+        "csiMaxDiff",
+        "tofMaxDrop",
+        "pirSilentDuration"
+    )
+
     CSI_DIFF_THRESHOLD = 1.0
 
     TOF_DROP_THRESHOLD = 500
@@ -28,6 +36,33 @@ class RuleEngine:
         self,
         features: dict
     ) -> dict:
+        
+        missing = [
+            key
+            for key in self.REQUIRED_FEATURE_KEYS
+            if key not in features
+        ]
+
+        if missing:
+
+            raise ValueError(
+                f"Missing required features: "
+                f"{missing}"
+            )
+
+        for key in self.REQUIRED_FEATURE_KEYS:
+
+            if not isinstance(
+                features[key],
+                Number
+            ):
+
+                raise TypeError(
+                    f"Feature '{key}' "
+                    f"must be numeric, "
+                    f"got "
+                    f"{type(features[key]).__name__}"
+                )
 
         score = 0.0
 
