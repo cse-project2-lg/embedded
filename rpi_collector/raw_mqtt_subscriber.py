@@ -41,7 +41,7 @@ def now_iso_ms() -> str:
 
 def log_path(kind: str) -> Path:
     date_key = datetime.now().strftime("%Y%m%d")
-    return Path(MQTT_RAW_LOG_DIR) / f"{kind}_{date_key}.jsonl"
+    return Path(MQTT_RAW_LOG_DIR).expanduser() / f"{kind}_{date_key}.jsonl"
 
 
 def append_jsonl(kind: str, payload: Dict[str, Any]) -> None:
@@ -79,7 +79,7 @@ def enqueue_for_preprocessing(enriched: Dict[str, Any]) -> None:
     """Default handoff sink used by tests or same-process preprocessing.
 
     실제 전처리/동기화 로직은 여기서 수행하지 않음.
-    전처리는 이 함수 대신 preprocessing_queue.put 같은 콜백을 넘기면 됨.
+    전처리팀은 이 함수 대신 preprocessing_queue.put 같은 콜백을 넘기면 됨.
     """
     PREPROCESSING_HANDOFF_QUEUE.put(enriched)
 
