@@ -51,7 +51,7 @@ class SlidingWindowManager:
         Window 생성 가능 여부 확인
 
         조건:
-        1. 최소 샘플 수 확보
+        1. Window 내부 최소 샘플 수 확보
         2. Window Size(7초) 확보
         """
 
@@ -65,14 +65,33 @@ class SlidingWindowManager:
             self.ts_buffer[0]
         )
 
+        end_ts = (
+            start_ts
+            + WINDOW_SIZE_NS
+        )
+
         current_ts = (
             self.ts_buffer[-1]
         )
 
-        return (
+        # 아직 7초가 안 채워짐
+        if (
             current_ts
             - start_ts
-            >= WINDOW_SIZE_NS
+            < WINDOW_SIZE_NS
+        ):
+            return False
+
+        # 실제 Window 내부 샘플 개수 계산
+        samples_in_window = sum(
+            1
+            for ts in self.ts_buffer
+            if ts <= end_ts
+        )
+
+        return (
+            samples_in_window
+            >= MIN_WINDOW_SAMPLES
         )
 
 
