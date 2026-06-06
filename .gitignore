@@ -1,50 +1,32 @@
-# Python cache
+.vscode
+
+# Python
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
+*$py.class
+*.so
+.Python
 
-# Virtual environment
-.venv/
+# Virtual environments
 venv/
 env/
 ENV/
-
-# Environment variables / secrets
-.env
-.env.*
-!.env.example
+.venv
 
 # Logs
 *.log
 logs/
-log/
 
-# Local runtime data
+# Sensor data
+*.jsonl
+*.raw
 data/
-tmp/
-temp/
+collected_data/
 
-# CSI raw local files
-csi_raw_*.jsonl
-
-# Test / coverage
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-
-# IDE / editor
-.vscode/
+# IDE
 .idea/
 *.swp
 *.swo
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Local DB artifacts
-*.db
-*.sqlite
-*.sqlite3
+*~
+rpi_collector/__pycache__/**
+.env
