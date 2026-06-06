@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import socket
 import time
 from datetime import datetime, timezone
@@ -35,14 +36,26 @@ from config import (
 )
 from mqtt_client import create_mqtt_client, publish_json
 
+# A collector restart can reset seq to 0. Keep a start-session id so packetId is
+# still unique enough inside one device/day log.
+COLLECTOR_SESSION_ID = f"{datetime.now().strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
+
+
+def now_local() -> datetime:
+    return datetime.now(timezone.utc).astimezone()
+
 
 def now_iso_ms() -> str:
-    return datetime.now(timezone.utc).astimezone().isoformat(timespec="milliseconds")
+    return now_local().isoformat(timespec="milliseconds")
+
+
+def csi_raw_log_filename(dt: datetime | None = None) -> str:
+    dt = dt or now_local()
+    return f"csi_raw_{dt.strftime('%Y%m%d')}.jsonl"
 
 
 def today_log_path() -> Path:
-    date_key = datetime.now().strftime("%Y%m%d")
-    return Path(CSI_RAW_LOG_DIR) / f"csi_raw_{date_key}.jsonl"
+    return Path(CSI_RAW_LOG_DIR).expanduser() / csi_raw_log_filename()
 
 
 def append_jsonl(payload: Dict[str, Any]) -> None:
@@ -52,13 +65,20 @@ def append_jsonl(payload: Dict[str, Any]) -> None:
         fp.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
+def build_packet_id(seq: int, dt: datetime) -> str:
+    return f"CSI-{dt.strftime('%Y%m%d')}-{COLLECTOR_SESSION_ID}-{seq:08d}"
+
+
 def build_csi_raw_message(seq: int, data: bytes, remote_addr: Tuple[str, int], udp_port: int) -> Dict[str, Any]:
+    received_dt = now_local()
     return {
         "type": "csi.raw",
+        "packetId": build_packet_id(seq, received_dt),
+        "collectorSessionId": COLLECTOR_SESSION_ID,
         "source": "rpi_nexmon_csi",
         "deviceId": DEVICE_ID,
         "seq": seq,
-        "receivedAt": now_iso_ms(),
+        "receivedAt": received_dt.isoformat(timespec="milliseconds"),
         "receivedMonotonicNs": time.monotonic_ns(),
         "interface": CSI_INTERFACE,
         "udpPort": udp_port,
@@ -66,6 +86,8 @@ def build_csi_raw_message(seq: int, data: bytes, remote_addr: Tuple[str, int], u
         "payloadLen": len(data),
         "payloadBase64": base64.b64encode(data).decode("ascii"),
         "payloadPrefixHex": data[:32].hex(),
+        # Used by synced.frame refs to find the original raw CSI row later.
+        "rawLogFile": csi_raw_log_filename(received_dt),
     }
 
 
@@ -88,6 +110,7 @@ def run_collector(bind_host: str, udp_port: int, mqtt_enabled: bool, topic: str)
         sock = open_udp_socket(bind_host, udp_port)
         print("csi_raw_collector 실행 중...")
         print(f"UDP listen: {bind_host}:{udp_port}")
+        print(f"collector session: {COLLECTOR_SESSION_ID}")
         print(f"MQTT publish: {mqtt_enabled}, topic: {topic}, qos: {CSI_MQTT_QOS}")
         print(f"JSONL log dir: {CSI_RAW_LOG_DIR}")
         print("주의: 이 코드는 raw 수집/통신까지만 담당하고 feature 추출은 하지 않음.")
@@ -114,7 +137,7 @@ def run_collector(bind_host: str, udp_port: int, mqtt_enabled: bool, topic: str)
 
             if seq < 5 or seq % 50 == 0:
                 print(
-                    f"CSI RAW seq={seq} len={record['payloadLen']} "
+                    f"CSI RAW seq={seq} packetId={record['packetId']} len={record['payloadLen']} "
                     f"prefix={record['payloadPrefixHex']}"
                 )
 
