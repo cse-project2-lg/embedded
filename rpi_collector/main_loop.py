@@ -1,8 +1,8 @@
 # IMPORT
 import json
-import paho.mqtt.client as mqtt
-
 from datetime import datetime
+
+import paho.mqtt.client as mqtt
 
 from config import (
     MQTT_HOST,
@@ -40,23 +40,6 @@ from event_generator import (
 )
 
 
-# MQTT PUBLISHER
-publisher = mqtt.Client()
-
-publisher.connect(
-    MQTT_HOST,
-    MQTT_PORT,
-    60
-)
-
-publisher.loop_start()
-
-# MQTT SUBSCRIBER
-
-subscriber = start_subscriber()
-
-
-# UTILS
 def iso_to_ns(
     timestamp_str: str
 ) -> int:
@@ -64,11 +47,6 @@ def iso_to_ns(
     ISO8601 Timestamp
         ↓
     Unix Timestamp(ns)
-
-    Example:
-    2026-06-06T15:42:10.123+09:00
-        ↓
-    1780728130123000000
     """
 
     return int(
@@ -79,126 +57,180 @@ def iso_to_ns(
     )
 
 
-# COMPONENTS
+def create_mqtt_publisher():
 
-tof_pre = ToFPreprocessor()
-csi_pre = CSIPreprocessor()
-sync_buffer = SlidingWindowManager()
-rule_engine = RuleEngine()
-event_generator = EventCandidateGenerator()
+    try:
 
-
-# MAIN LOOP
-print(
-    "[SYSTEM] Edge Fall Detection Pipeline Start"
-)
-
-while True:
-    # 1. /preprocess/synced_frame 수신
-    frame = receive_frame()
-
-    # 2. 전처리 (ToF + CSI 동시 처리)
-    processed = process_synced_frame(
-        frame,
-        tof_pre,
-        csi_pre
-    )
-
-    # CSI 데이터가 없으면 Skip
-
-    if (
-        processed["csiFilteredAmp"]
-        is None
-    ):
-        continue
-
-    # 3. Timestamp 정규화
-    # ISO8601 → ns
-
-    timestamp_ns = iso_to_ns(
-        processed["timestamp"]
-    )
-
-    # 4. Sliding Window Buffer 적재
-
-    sync_buffer.push(
-        csi=processed["csiFilteredAmp"],
-        tof=processed["tofDistanceMm"],
-        pir=processed["pirMotion"],
-        ts=timestamp_ns
-    )
-
-    # Window Size(7초)가 아직 채워지지 않은 경우 대기
-    if not sync_buffer.window_ready():
-        continue
-
-    # 5. Window 생성(7초 Window + 2초 Overlap)
-    (
-        csi_window,
-        tof_window,
-        pir_window,
-        ts_window
-    ) = sync_buffer.get_window()
-
-    # 6. Feature Extraction (CSI + ToF + PIR 특징 추출)
-
-    features = extract_window_features(
-        csi_window,
-        tof_window,
-        pir_window,
-        ts_window
-    )
-
-    # 7. Rule-Based 1차 판정
-    rule_result = rule_engine.judge(
-        features
-    )
-
-    # LOW 위험도는 Cloud 전송 생략
-    if (
-        rule_result[
-            "localRiskLevel"
-        ] == "LOW"
-    ):
-        continue
-
-    # 8. event.candidate 생성
-    event_candidate = (
-        event_generator.build(
-
-            features=features,
-
-            rule_result=rule_result,
-
-            ts_window=ts_window,
-
-            device_id=DEVICE_ID,
-
-            room_id=ROOM_ID,
-
-            csi_status="AVAILABLE"
+        client = mqtt.Client(
+            mqtt.CallbackAPIVersion.VERSION2
         )
+
+    except AttributeError:
+
+        client = mqtt.Client()
+
+    client.connect(
+        MQTT_HOST,
+        MQTT_PORT,
+        60
     )
 
-    # 9. MQTT Publish
-    # Cloud AI 분석 요청
+    client.loop_start()
 
-    publisher.publish(
-        TOPIC_EVENT_CANDIDATE,
+    return client
 
-        json.dumps(
-            event_candidate
-        )
+
+def main():
+
+    # MQTT PUBLISHER
+    publisher = create_mqtt_publisher()
+
+    # MQTT SUBSCRIBER
+    start_subscriber()
+
+    # COMPONENTS
+    tof_pre = ToFPreprocessor()
+
+    csi_pre = CSIPreprocessor()
+
+    sync_buffer = (
+        SlidingWindowManager()
+    )
+
+    rule_engine = RuleEngine()
+
+    event_generator = (
+        EventCandidateGenerator()
     )
 
     print(
-        "\n[EVENT CANDIDATE]"
+        "[SYSTEM] Edge Fall Detection Pipeline Start"
     )
 
-    print(
-        json.dumps(
-            event_candidate,
-            indent=2,
-            ensure_ascii=False
-        )
-    )
+    while True:
+
+        try:
+
+            # 1. /preprocess/synced_frame 수신
+            frame = receive_frame()
+
+            # 2. 전처리
+            processed = process_synced_frame(
+                frame,
+                tof_pre,
+                csi_pre
+            )
+
+            # CSI 데이터가 없으면 Skip
+            if (
+                processed["csiFilteredAmp"]
+                is None
+            ):
+                continue
+
+            # 3. Timestamp 정규화
+            timestamp_ns = iso_to_ns(
+                processed["timestamp"]
+            )
+
+            # 4. Sliding Window Buffer 적재
+            sync_buffer.push(
+                csi=processed["csiFilteredAmp"],
+                tof=processed["tofDistanceMm"],
+                pir=processed["pirMotion"],
+                ts=timestamp_ns
+            )
+
+            # Window Size(7초)가
+            # 아직 채워지지 않은 경우 대기
+            if not sync_buffer.window_ready():
+                continue
+
+            # 5. Window 생성
+            (
+                csi_window,
+                tof_window,
+                pir_window,
+                ts_window
+            ) = sync_buffer.get_window()
+
+            # 6. Feature Extraction
+            features = (
+                extract_window_features(
+                    csi_window,
+                    tof_window,
+                    pir_window,
+                    ts_window
+                )
+            )
+
+            # 7. Rule-Based 1차 판정
+            rule_result = (
+                rule_engine.judge(
+                    features
+                )
+            )
+
+            # LOW 위험도는 Skip
+            if (
+                rule_result[
+                    "localRiskLevel"
+                ] == "LOW"
+            ):
+                continue
+
+            # 8. event.candidate 생성
+            event_candidate = (
+                event_generator.build(
+
+                    features=features,
+
+                    rule_result=rule_result,
+
+                    ts_window=ts_window,
+
+                    device_id=DEVICE_ID,
+
+                    room_id=ROOM_ID,
+
+                    csi_status="AVAILABLE"
+                )
+            )
+
+            # 9. MQTT Publish
+            info = publisher.publish(
+
+                TOPIC_EVENT_CANDIDATE,
+
+                json.dumps(
+                    event_candidate
+                ),
+
+                qos=1
+            )
+
+            print(
+                "\n[EVENT CANDIDATE]"
+            )
+
+            print(
+                json.dumps(
+                    event_candidate,
+                    indent=2,
+                    ensure_ascii=False
+                )
+            )
+
+        except Exception as exc:
+
+            print(
+                f"[ERROR] "
+                f"Pipeline processing failed: "
+                f"{exc}"
+            )
+
+            continue
+
+
+if __name__ == "__main__":
+    main()
