@@ -10,6 +10,7 @@ analysisReason + verificationPlan + analysisStatus.
 """
 
 from datetime import datetime, timezone
+from threading import Thread
 from typing import Any, Dict
 
 import requests
@@ -96,18 +97,27 @@ def request_ai_analysis(event: Dict[str, Any]) -> Dict[str, Any]:
     return response.json()
 
 
+def process_event_candidate(mqtt_client, event: Dict[str, Any]) -> None:
+    """Run the blocking REST call outside the MQTT network loop thread."""
+    try:
+        result = normalize_analysis_result(request_ai_analysis(event), event)
+    except Exception as exc:
+        result = fallback_result(event, f"AI/RAG REST 요청 실패 또는 응답 정규화 실패: {exc}")
+
+    publish_json(mqtt_client, TOPIC_ANALYSIS_RESULT, result)
+    print(f"{TOPIC_ANALYSIS_RESULT} 발행: {result}")
+
+
 def on_message(mqtt_client, userdata, msg) -> None:
     try:
         event = parse_json_message(msg)
         print(f"{TOPIC_EVENT_CANDIDATE} 수신: {event}")
 
-        try:
-            result = normalize_analysis_result(request_ai_analysis(event), event)
-        except Exception as exc:
-            result = fallback_result(event, f"AI/RAG REST 요청 실패 또는 응답 정규화 실패: {exc}")
-
-        publish_json(mqtt_client, TOPIC_ANALYSIS_RESULT, result)
-        print(f"{TOPIC_ANALYSIS_RESULT} 발행: {result}")
+        Thread(
+            target=process_event_candidate,
+            args=(mqtt_client, event),
+            daemon=True,
+        ).start()
 
     except Exception as exc:
         print(f"analysis_bridge 처리 오류: {exc}")

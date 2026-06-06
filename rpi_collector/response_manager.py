@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
+from threading import Thread
 from typing import Any, Dict, List, Tuple
 
 import requests
@@ -340,14 +341,23 @@ def handle_analysis_result(result: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
+def process_analysis_result(mqtt_client, result: Dict[str, Any]) -> None:
+    """Handle blocking prompt/STT/notification work outside the MQTT loop."""
+    outcome = handle_analysis_result(result)
+    publish_json(mqtt_client, TOPIC_RESPONSE_OUTCOME, outcome)
+    print(f"{TOPIC_RESPONSE_OUTCOME} 발행: {outcome}")
+
+
 def on_message(mqtt_client, userdata, msg) -> None:
     try:
         result = parse_json_message(msg)
         print(f"{TOPIC_ANALYSIS_RESULT} 수신: {result}")
 
-        outcome = handle_analysis_result(result)
-        publish_json(mqtt_client, TOPIC_RESPONSE_OUTCOME, outcome)
-        print(f"{TOPIC_RESPONSE_OUTCOME} 발행: {outcome}")
+        Thread(
+            target=process_analysis_result,
+            args=(mqtt_client, result),
+            daemon=True,
+        ).start()
 
     except Exception as exc:
         print(f"response_manager 처리 오류: {exc}")
