@@ -8,6 +8,8 @@ OVERLAP_SEC = 2
 WINDOW_SIZE_NS = WINDOW_SIZE_SEC * 1_000_000_000
 STEP_SIZE_NS = (WINDOW_SIZE_SEC - OVERLAP_SEC) * 1_000_000_000
 
+# 최소 샘플 수
+MIN_WINDOW_SAMPLES = 5
 
 class SlidingWindowManager:
     # Timestamp 기반 Sliding Window
@@ -45,31 +47,58 @@ class SlidingWindowManager:
         self.ts_buffer.append(ts)
 
     def window_ready(self):
-        # 7초 Window가 채워졌는지 확인
+        """
+        Window 생성 가능 여부 확인
 
-        if len(self.ts_buffer) < 2:
+        조건:
+        1. 최소 샘플 수 확보
+        2. Window Size(7초) 확보
+        """
+
+        if (
+            len(self.ts_buffer)
+            < MIN_WINDOW_SAMPLES
+        ):
             return False
 
-        start_ts = self.ts_buffer[0]
-        current_ts = self.ts_buffer[-1]
+        start_ts = (
+            self.ts_buffer[0]
+        )
+
+        current_ts = (
+            self.ts_buffer[-1]
+        )
 
         return (
-            current_ts - start_ts
+            current_ts
+            - start_ts
             >= WINDOW_SIZE_NS
         )
+
 
     def get_window(self):
         # Window 추출 후 다음 Window를 위해 5초 만큼 이동
 
-        start_ts = self.ts_buffer[0]
-        end_ts = start_ts + WINDOW_SIZE_NS
+        start_ts = (
+            self.ts_buffer[0]
+        )
+
+        end_ts = (
+            start_ts
+            + WINDOW_SIZE_NS
+        )
 
         csi_window = []
+
         tof_window = []
+
         pir_window = []
+
         ts_window = []
 
-        for i, ts in enumerate(self.ts_buffer):
+        for i, ts in enumerate(
+            self.ts_buffer
+        ):
 
             if ts <= end_ts:
 
@@ -85,20 +114,28 @@ class SlidingWindowManager:
                     self.pir_buffer[i]
                 )
 
-                ts_window.append(ts)
+                ts_window.append(
+                    ts
+                )
 
         next_window_start = (
-            start_ts + STEP_SIZE_NS
+            start_ts
+            + STEP_SIZE_NS
         )
 
         while (
             self.ts_buffer
             and
-            self.ts_buffer[0] < next_window_start
+            self.ts_buffer[0]
+            < next_window_start
         ):
+
             self.csi_buffer.popleft()
+
             self.tof_buffer.popleft()
+
             self.pir_buffer.popleft()
+
             self.ts_buffer.popleft()
 
         return (
