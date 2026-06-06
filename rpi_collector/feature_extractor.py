@@ -3,7 +3,7 @@ from typing import List
 
 
 def extract_csi_features(
-    csi_window: List[np.ndarray]
+    csi_window: List[np.ndarray | None]
 ) -> dict:
     """
     CSI 특징 추출
@@ -34,10 +34,54 @@ def extract_csi_features(
             "csiPacketCount": 0
         }
 
+    # 유효 CSI만 필터링
+    valid_csi = []
+
+    for chunk in csi_window:
+
+        if chunk is None:
+            continue
+
+        if not isinstance(
+            chunk,
+            np.ndarray
+        ):
+            continue
+
+        if chunk.size == 0:
+            continue
+
+        # (time_steps, num_groups) 형태인지 확인
+        if chunk.ndim != 2:
+            continue
+
+        valid_csi.append(
+            chunk
+        )
+
+    # 실제 CSI가 하나도 없는 경우
+    if not valid_csi:
+
+        return {
+            "csiMaxVariance": 0.0,
+            "csiMaxAmplitude": 0.0,
+            "csiMaxDiff": 0.0,
+            "csiPacketCount": 0
+        }
+
     merged = np.concatenate(
-        csi_window,
+        valid_csi,
         axis=0
     )
+
+    if merged.size == 0:
+
+        return {
+            "csiMaxVariance": 0.0,
+            "csiMaxAmplitude": 0.0,
+            "csiMaxDiff": 0.0,
+            "csiPacketCount": 0
+        }
 
     max_variance = float(
         np.max(
@@ -80,13 +124,11 @@ def extract_csi_features(
         "csiMaxDiff":
             round(max_diff, 4),
 
-        # 실제 CSI frame 개수
         "csiPacketCount":
             int(
                 merged.shape[0]
             )
     }
-
 
 def extract_tof_features(
     tof_window: List[float],
@@ -275,7 +317,7 @@ def extract_pir_features(
 
 
 def extract_window_features(
-    csi_window: List[np.ndarray],
+    csi_window: List[np.ndarray | None],
     tof_window: List[float],
     pir_window: List[bool],
     ts_window: List[int]

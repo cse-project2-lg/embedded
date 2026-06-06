@@ -121,12 +121,11 @@ def main():
                 csi_pre
             )
 
-            # CSI 데이터가 없으면 Skip
-            if (
+            # CSI 사용 가능 여부
+            csi_available = (
                 processed["csiFilteredAmp"]
-                is None
-            ):
-                continue
+                is not None
+            )
 
             # 3. Timestamp 정규화
             timestamp_ns = iso_to_ns(
@@ -135,7 +134,11 @@ def main():
 
             # 4. Sliding Window Buffer 적재
             sync_buffer.push(
-                csi=processed["csiFilteredAmp"],
+                csi=(
+                    processed["csiFilteredAmp"]
+                    if csi_available
+                    else []
+                ),
                 tof=processed["tofDistanceMm"],
                 pir=processed["pirMotion"],
                 ts=timestamp_ns
@@ -155,20 +158,16 @@ def main():
             ) = sync_buffer.get_window()
 
             # 6. Feature Extraction
-            features = (
-                extract_window_features(
-                    csi_window,
-                    tof_window,
-                    pir_window,
-                    ts_window
-                )
+            features = extract_window_features(
+                csi_window,
+                tof_window,
+                pir_window,
+                ts_window
             )
 
             # 7. Rule-Based 1차 판정
-            rule_result = (
-                rule_engine.judge(
-                    features
-                )
+            rule_result = rule_engine.judge(
+                features
             )
 
             # LOW 위험도는 Skip
@@ -193,7 +192,11 @@ def main():
 
                     room_id=ROOM_ID,
 
-                    csi_status="AVAILABLE"
+                    csi_status=(
+                        "AVAILABLE"
+                        if csi_available
+                        else "UNAVAILABLE"
+                    )
                 )
             )
 
