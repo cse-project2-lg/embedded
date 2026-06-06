@@ -129,11 +129,27 @@ def extract_tof_features(
         dtype=float
     )
 
-    # Window 내 최대 거리 변화
-    max_drop = float(
-        np.max(arr)
-        - np.min(arr)
-    )
+    # Window 내 최대 하강량
+    if len(arr) >= 2:
+
+        drops = (
+            arr[:-1]
+            - arr[1:]
+        )
+
+        max_drop = float(
+            np.max(
+                np.clip(
+                    drops,
+                    0.0,
+                    None
+                )
+            )
+        )
+
+    else:
+
+        max_drop = 0.0
 
     # 현재 거리
     current_distance = float(
@@ -143,7 +159,9 @@ def extract_tof_features(
     # 현재 위치가 얼마나 유지되었는지 계산
     stable_threshold_mm = 50
 
-    stable_start_idx = len(arr) - 1
+    stable_start_idx = (
+        len(arr) - 1
+    )
 
     for i in range(
         len(arr) - 2,
