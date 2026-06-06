@@ -1,35 +1,17 @@
-# main_loop.py 예시
-from preprocessor import (
-    ToFPreprocessor, CSIPreprocessor,
-    CsiRawFileLoader, process_synced_frame,
-)
+# main_loop.py
+from preprocessor import ToFPreprocessor, CSIPreprocessor, process_synced_frame
 from feature_extractor import extract_window_features
-from datetime import date
 
 # 전처리기 초기화
 tof_pre = ToFPreprocessor()
 csi_pre = CSIPreprocessor()
 
-# CSI JSONL 로더 — 날짜가 바뀌면 재생성 필요
-def make_loader() -> CsiRawFileLoader:
-    today = date.today().strftime("%Y%m%d")
-    return CsiRawFileLoader(
-        f"/home/wisasy/workspace/embedded/data/csi_raw/csi_raw_{today}.jsonl"
-    )
-
-loader = make_loader()
-
 while True:
     # 1. /preprocess/synced_frame 토픽 수신
-    frame = mqtt_receive_synced_frame()  # synced.frame 딕셔너리
+    frame = mqtt_receive_synced_frame()
 
-    # 날짜 자정 넘어가면 loader 교체
-    today = date.today().strftime("%Y%m%d")
-    if today not in str(loader._path):
-        loader = make_loader()
-
-    # 2. 전처리 (ToF + CSI 동시)
-    processed = process_synced_frame(frame, loader, tof_pre, csi_pre)
+    # 2. 전처리 (ToF + CSI 동시, loader는 rawLogFile 기반으로 내부 자동 결정)
+    processed = process_synced_frame(frame, tof_pre, csi_pre)
 
     # csiFilteredAmp 가 None 이면 pingOk=False 또는 유효 패킷 없음 → 스킵
     if processed["csiFilteredAmp"] is None:

@@ -25,9 +25,9 @@ def parse_nexmon_payload(payload_b64: str, num_subcarriers: int = 64) -> np.ndar
 
     payloadLen 274 = 헤더 18 bytes + 서브캐리어 256 bytes 에 해당.
 
-    ⚠️  실제 펌웨어 버전/빌드 환경에 따라 헤더 오프셋이 다를 수 있다.
-        payloadPrefixHex 값으로 magic(0x11111111) 위치를 확인하고
-        NEXMON_HEADER_SIZE 상수를 조정할 것.
+    실제 펌웨어 버전/빌드 환경에 따라 헤더 오프셋이 다를 수 있다.
+    payloadPrefixHex 값으로 magic(0x11111111) 위치를 확인하고
+    NEXMON_HEADER_SIZE 상수를 조정할 것.
         예) payloadPrefixHex = "c1ff04476700..." 에서 첫 바이트가 헤더 시작.
 
     Args:
@@ -135,21 +135,47 @@ class CsiRawFileLoader:
         return record
 
 
+# ---------------------------------------------------------------------------
+# loader 캐시 (rawLogFile 기반)
+# ---------------------------------------------------------------------------
+
+_loader_cache: dict[str, CsiRawFileLoader] = {}
+CSI_RAW_BASE_DIR = "/home/wisasy/workspace/embedded/data/csi_raw"
+
+
+def get_loader(raw_log_file: str) -> CsiRawFileLoader:
+    """
+    rawLogFile 파일명으로 CsiRawFileLoader 를 반환한다.
+    동일 파일명이면 캐시된 인스턴스를 재사용한다.
+
+    Args:
+        raw_log_file: csi_raw JSONL 레코드의 rawLogFile 값
+                      (예: "csi_raw_20260606.jsonl")
+
+    Returns:
+        CsiRawFileLoader 인스턴스
+    """
+    if raw_log_file not in _loader_cache:
+        path = f"{CSI_RAW_BASE_DIR}/{raw_log_file}"
+        _loader_cache[raw_log_file] = CsiRawFileLoader(path)
+        logger.debug("CsiRawFileLoader 생성: %s", raw_log_file)
+    return _loader_cache[raw_log_file]
+
+
 def build_chunk_from_refs(
     csi_raw_refs: list[dict],
-    loader: CsiRawFileLoader,
     num_subcarriers: int = 64,
 ) -> np.ndarray | None:
     """
-    synced.frame 의 csiRawRefs 목록 + CsiRawFileLoader
+    synced.frame 의 csiRawRefs 목록
+    → rawLogFile 기반 loader 자동 결정
     → (time_steps, num_subcarriers) 복소수 배열
 
-    csiRawRefs 는 payload 없이 seq / receivedAt / payloadLen 등 참조 정보만 가지고 있으므로
-    loader 를 통해 JSONL 파일에서 실제 payloadBase64 를 가져온다.
+    csiRawRefs 각 항목의 rawLogFile 로 loader 를 결정하고,
+    seq 로 JSONL 에서 실제 payloadBase64 를 조회한다.
 
     Args:
         csi_raw_refs: synced.frame["raw"]["csiRawRefs"]
-        loader: CsiRawFileLoader 인스턴스
         num_subcarriers: 서브캐리어 수
 
     Returns:
@@ -158,11 +184,23 @@ def build_chunk_from_refs(
     rows = []
     for ref in csi_raw_refs:
         seq = ref.get("seq")
-        if seq is None:
+        packet_id = ref.get("packetId")  # 로그용
+        raw_log_file = ref.get("rawLogFile")
+
+        if seq is None or not raw_log_file:
+            logger.warning(
+                "csiRawRefs 항목 누락 (seq=%s, rawLogFile=%s, packetId=%s)",
+                seq, raw_log_file, packet_id,
+            )
             continue
 
+        loader = get_loader(raw_log_file)
         record = loader.get_by_seq(int(seq))
         if record is None:
+            logger.warning(
+                "seq=%d 레코드 없음 (packetId=%s, rawLogFile=%s)",
+                seq, packet_id, raw_log_file,
+            )
             continue
 
         payload_b64 = record.get("payloadBase64", "")
@@ -343,20 +381,16 @@ class CSIPreprocessor:
 
         return filtered_amp
 
-    def process_from_frame(
-        self,
-        frame: dict,
-        loader: CsiRawFileLoader,
-    ) -> np.ndarray | None:
+    def process_from_frame(self, frame: dict) -> np.ndarray | None:
         """
-        synced.frame + CsiRawFileLoader 에서 CSI 청크를 추출·전처리
+        synced.frame 에서 CSI 청크를 추출·전처리
 
         - transport.pingOk 가 False 이면 CSI 신뢰도 없음 → None 반환
         - csiRawRefs → build_chunk_from_refs() → process_chunk()
+        - loader 는 csiRawRefs[].rawLogFile 기반으로 자동 결정
 
         Args:
             frame: synced.frame 딕셔너리
-            loader: CsiRawFileLoader 인스턴스
 
         Returns:
             filtered_amp: shape (time_steps, num_groups), 또는 None
@@ -372,7 +406,7 @@ class CSIPreprocessor:
             return None
 
         refs = frame.get("raw", {}).get("csiRawRefs", [])
-        chunk = build_chunk_from_refs(refs, loader, self.num_subcarriers)
+        chunk = build_chunk_from_refs(refs, self.num_subcarriers)
         if chunk is None:
             return None
 
@@ -385,16 +419,17 @@ class CSIPreprocessor:
 
 def process_synced_frame(
     frame: dict,
-    loader: CsiRawFileLoader,
     tof_preprocessor: ToFPreprocessor,
     csi_preprocessor: CSIPreprocessor,
 ) -> dict:
     """
     synced.frame 하나를 받아 ToF + CSI 전처리 결과를 반환
 
+    loader 는 csiRawRefs[].rawLogFile 을 보고 내부에서 자동 결정되므로
+    호출부에서 별도로 관리할 필요 없다.
+
     Args:
         frame: synced.frame 딕셔너리 (/preprocess/synced_frame MQTT 메시지)
-        loader: CsiRawFileLoader 인스턴스 (csi_raw JSONL 파일 접근용)
         tof_preprocessor: ToFPreprocessor 인스턴스
         csi_preprocessor: CSIPreprocessor 인스턴스
 
@@ -402,7 +437,7 @@ def process_synced_frame(
         {
             "frameId":        str,
             "timestamp":      str,
-            "tofDistanceMm":  float,            # 정제된 ToF 거리값
+            "tofDistanceMm":  float,             # 정제된 ToF 거리값
             "pirMotion":      bool,
             "csiFilteredAmp": np.ndarray | None, # shape (time_steps, num_groups)
             "csiPacketCount": int,
@@ -415,7 +450,7 @@ def process_synced_frame(
     summary = frame.get("summary", {})
 
     tof_distance = tof_preprocessor.process_from_frame(sensors)
-    csi_filtered = csi_preprocessor.process_from_frame(frame, loader)
+    csi_filtered = csi_preprocessor.process_from_frame(frame)
 
     return {
         "frameId":        frame.get("frameId"),
@@ -423,6 +458,6 @@ def process_synced_frame(
         "tofDistanceMm":  tof_distance,
         "pirMotion":      sensors.get("pirMotion", False),
         "csiFilteredAmp": csi_filtered,
-        "csiPacketCount": summary.get("csiPacketCount", 0),  # summary 필드명 변경 반영
+        "csiPacketCount": summary.get("csiPacketCount", 0),
         "pingOk":         transport.get("pingOk", False),
     }
