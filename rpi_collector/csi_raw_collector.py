@@ -22,7 +22,7 @@ import socket
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, TextIO, Tuple
 
 from config import (
     CSI_INTERFACE,
@@ -58,11 +58,39 @@ def today_log_path() -> Path:
     return Path(CSI_RAW_LOG_DIR).expanduser() / csi_raw_log_filename()
 
 
+_log_file: Optional[TextIO] = None
+_log_file_path: Optional[Path] = None
+
+
 def append_jsonl(payload: Dict[str, Any]) -> None:
+    """Append one JSONL row while reusing the current day's file handle.
+
+    CSI packets can arrive at a high rate. Opening and closing the log file for
+    every packet adds unnecessary disk I/O overhead, so keep the file handle
+    open and only reopen it when the date-based log path changes.
+    """
+    global _log_file, _log_file_path
+
     path = today_log_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fp:
-        fp.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+    if _log_file is None or _log_file_path != path:
+        close_jsonl_log()
+        _log_file_path = path
+        _log_file = path.open("a", encoding="utf-8")
+
+    _log_file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    _log_file.flush()
+
+
+def close_jsonl_log() -> None:
+    """Close the cached JSONL file handle on shutdown or day rollover."""
+    global _log_file, _log_file_path
+
+    if _log_file is not None:
+        _log_file.close()
+    _log_file = None
+    _log_file_path = None
 
 
 def build_packet_id(seq: int, dt: datetime) -> str:
@@ -95,6 +123,9 @@ def open_udp_socket(host: str, port: int) -> socket.socket:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    # Nexmon CSI UDP can arrive in bursts. Increase the kernel receive buffer
+    # to reduce packet drops when the Python process is briefly busy.
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4 * 1024 * 1024)
     sock.bind((host, port))
     return sock
 
@@ -147,6 +178,7 @@ def run_collector(bind_host: str, udp_port: int, mqtt_enabled: bool, topic: str)
     finally:
         if sock is not None:
             sock.close()
+        close_jsonl_log()
         if mqtt_client is not None:
             mqtt_client.loop_stop()
             mqtt_client.disconnect()

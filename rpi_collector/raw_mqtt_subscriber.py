@@ -21,7 +21,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from queue import Queue
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TextIO
 
 from config import MQTT_RAW_LOG_DIR, TOPIC_CSI_RAW, TOPIC_SENSOR_RAW
 from csi_raw_contract import validate_csi_raw
@@ -44,11 +44,29 @@ def log_path(kind: str) -> Path:
     return Path(MQTT_RAW_LOG_DIR).expanduser() / f"{kind}_{date_key}.jsonl"
 
 
+_open_log_files: Dict[str, TextIO] = {}
+
+
 def append_jsonl(kind: str, payload: Dict[str, Any]) -> None:
+    """Append one JSONL row while caching file handles per log path."""
     path = log_path(kind)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as fp:
-        fp.write(json.dumps(payload, ensure_ascii=False) + "\n")
+
+    key = str(path)
+    fp = _open_log_files.get(key)
+    if fp is None:
+        fp = path.open("a", encoding="utf-8")
+        _open_log_files[key] = fp
+
+    fp.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    fp.flush()
+
+
+def close_jsonl_logs() -> None:
+    """Close cached JSONL file handles on shutdown."""
+    for fp in _open_log_files.values():
+        fp.close()
+    _open_log_files.clear()
 
 
 def enrich_mqtt_receive(topic: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -180,7 +198,10 @@ def run_subscriber(on_valid_message: Optional[RawMessageCallback] = None) -> Non
     print(f"subscribe: {TOPIC_CSI_RAW}")
     print(f"raw mqtt log dir: {MQTT_RAW_LOG_DIR}")
     print("주의: 이 코드는 통신/검증/로그/전달까지만 담당하고 동기화/feature 추출은 하지 않음.")
-    client.loop_forever()
+    try:
+        client.loop_forever()
+    finally:
+        close_jsonl_logs()
 
 
 def parse_args() -> argparse.Namespace:
