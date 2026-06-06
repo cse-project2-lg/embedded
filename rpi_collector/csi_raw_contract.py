@@ -39,6 +39,12 @@ def validate_csi_raw(payload: Dict[str, Any]) -> List[str]:
     if payload.get("type") != "csi.raw":
         errors.append("type must be 'csi.raw'")
 
+    if "packetId" in payload and not isinstance(payload["packetId"], str):
+        errors.append("packetId must be a string")
+
+    if "rawLogFile" in payload and not isinstance(payload["rawLogFile"], str):
+        errors.append("rawLogFile must be a string")
+
     if "seq" in payload and (not isinstance(payload["seq"], int) or payload["seq"] < 0):
         errors.append("seq must be a non-negative integer")
 
