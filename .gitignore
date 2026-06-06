@@ -1,2 +1,32 @@
+.vscode
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Logs
+*.log
+logs/
+
+# Sensor data
+*.jsonl
+*.raw
+data/
+collected_data/
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
 rpi_collector/__pycache__/**
 .env
