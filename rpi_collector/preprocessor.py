@@ -91,48 +91,85 @@ class CsiRawFileLoader:
         """
         import json
         self._path = Path(jsonl_path)
-        self._index: dict[int, dict] = {}  # seq → record
+        self._index: dict[int, int] = {}  # seq -> byte offset
         self._loaded = False
         self._json = json
 
     def _load(self) -> None:
-        """JSONL 전체를 seq 기준으로 인덱싱 (최초 호출 시 1회만 실행)"""
+        """JSONL 파일의 각 라인 시작 바이트 오프셋을 seq 기준으로 인덱싱"""
         if self._loaded:
             return
+
         if not self._path.exists():
             raise FileNotFoundError(f"CSI JSONL 파일 없음: {self._path}")
 
-        with self._path.open("r", encoding="utf-8") as f:
-            for lineno, line in enumerate(f, 1):
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    record = self._json.loads(line)
-                    seq = record.get("seq")
-                    if seq is not None:
-                        self._index[int(seq)] = record
-                except self._json.JSONDecodeError as e:
-                    logger.warning("JSONL 파싱 실패 (line %d): %s", lineno, e)
+        with self._path.open("rb") as f:
+            offset = 0
 
-        logger.debug("CsiRawFileLoader: %d 레코드 로드 완료 (%s)", len(self._index), self._path.name)
+            while True:
+                line = f.readline()
+
+                if not line:
+                    break
+
+                line_stripped = line.strip()
+
+                if line_stripped:
+                    try:
+                        record = self._json.loads(
+                            line_stripped.decode("utf-8")
+                        )
+
+                        seq = record.get("seq")
+
+                        if seq is not None:
+                            self._index[int(seq)] = offset
+
+                    except Exception as e:
+                        logger.warning(
+                            "JSONL 라인 인덱싱 실패: %s",
+                            e,
+                        )
+
+                offset = f.tell()
+
+        logger.debug(
+            "CsiRawFileLoader: %d 레코드 오프셋 인덱싱 완료 (%s)",
+            len(self._index),
+            self._path.name,
+        )
+
         self._loaded = True
 
     def get_by_seq(self, seq: int) -> dict | None:
         """
         seq 번호로 CSI raw 레코드 조회
-
-        Args:
-            seq: csiRawRefs[i].seq 값
-
-        Returns:
-            CSI raw 레코드 딕셔너리, 없으면 None
         """
+
         self._load()
-        record = self._index.get(seq)
-        if record is None:
+
+        offset = self._index.get(seq)
+
+        if offset is None:
             logger.warning("seq=%d 레코드 없음", seq)
-        return record
+            return None
+
+        with self._path.open("rb") as f:
+            f.seek(offset)
+
+            line = f.readline()
+
+            try:
+                return self._json.loads(
+                    line.decode("utf-8")
+                )
+            except Exception as e:
+                logger.warning(
+                    "seq=%d 레코드 파싱 실패: %s",
+                    seq,
+                    e,
+                )
+                return None
 
 
 # ---------------------------------------------------------------------------
@@ -145,21 +182,29 @@ CSI_RAW_BASE_DIR = "/home/wisasy/workspace/embedded/data/csi_raw"
 
 def get_loader(raw_log_file: str) -> CsiRawFileLoader:
     """
-    rawLogFile 파일명으로 CsiRawFileLoader 를 반환한다.
-    동일 파일명이면 캐시된 인스턴스를 재사용한다.
-
-    Args:
-        raw_log_file: csi_raw JSONL 레코드의 rawLogFile 값
-                      (예: "csi_raw_20260606.jsonl")
-
-    Returns:
-        CsiRawFileLoader 인스턴스
+    rawLogFile 파일명으로 loader 반환
     """
-    if raw_log_file not in _loader_cache:
-        path = f"{CSI_RAW_BASE_DIR}/{raw_log_file}"
-        _loader_cache[raw_log_file] = CsiRawFileLoader(path)
-        logger.debug("CsiRawFileLoader 생성: %s", raw_log_file)
-    return _loader_cache[raw_log_file]
+
+    base_dir = Path(CSI_RAW_BASE_DIR).resolve()
+
+    safe_name = Path(raw_log_file).name
+
+    candidate = (base_dir / safe_name).resolve()
+
+    if base_dir not in candidate.parents and candidate != base_dir:
+        raise ValueError(
+            f"허용되지 않은 rawLogFile 경로: {raw_log_file}"
+        )
+
+    if safe_name not in _loader_cache:
+        _loader_cache[safe_name] = CsiRawFileLoader(candidate)
+
+        logger.debug(
+            "CsiRawFileLoader 생성: %s",
+            safe_name,
+        )
+
+    return _loader_cache[safe_name]
 
 
 def build_chunk_from_refs(
@@ -194,12 +239,36 @@ def build_chunk_from_refs(
             )
             continue
 
-        loader = get_loader(raw_log_file)
-        record = loader.get_by_seq(int(seq))
+        try:
+            seq_int = int(seq)
+
+            loader = get_loader(raw_log_file)
+
+            record = loader.get_by_seq(seq_int)
+
+        except (
+            ValueError,
+            FileNotFoundError,
+            OSError,
+        ) as e:
+
+            logger.warning(
+                "csiRawRef 처리 실패 "
+                "(seq=%s, rawLogFile=%s, packetId=%s): %s",
+                seq,
+                raw_log_file,
+                packet_id,
+                e,
+            )
+
+            continue
+
         if record is None:
             logger.warning(
-                "seq=%d 레코드 없음 (packetId=%s, rawLogFile=%s)",
-                seq, packet_id, raw_log_file,
+                "seq=%s 레코드 없음 (packetId=%s, rawLogFile=%s)",
+                seq,
+                packet_id,
+                raw_log_file,
             )
             continue
 
@@ -277,8 +346,11 @@ class ToFPreprocessor:
             logger.debug("ToF invalid (tofValid=False)")
             return self.last_valid
 
-        if sensors.get("tofError") is not None:
-            logger.debug("ToF error: %s", sensors["tofError"])
+        if sensors.get("tofError", False):
+            logger.debug(
+                "ToF error: %s",
+                sensors.get("tofError"),
+            )
             return self.last_valid
 
         if sensors.get("tofTimeout", False):
@@ -398,7 +470,9 @@ class CSIPreprocessor:
         sensor_raw = frame.get("raw", {}).get("sensorRaw", {})
         transport = sensor_raw.get("transport", {})
 
-        if not transport.get("pingOk", True):
+        ping_ok = transport.get("pingOk")
+
+        if ping_ok is False:
             logger.warning(
                 "pingOk=False — ESP32↔AP 트래픽 단절, CSI 처리 스킵 (frameId=%s)",
                 frame.get("frameId"),
@@ -459,5 +533,5 @@ def process_synced_frame(
         "pirMotion":      sensors.get("pirMotion", False),
         "csiFilteredAmp": csi_filtered,
         "csiPacketCount": summary.get("csiPacketCount", 0),
-        "pingOk":         transport.get("pingOk", False),
+        "pingOk":         transport.get("pingOk"),
     }
