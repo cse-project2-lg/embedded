@@ -9,7 +9,7 @@ def now_utc() -> datetime:
 
 def parse_iso_datetime(value: str | None) -> datetime:
     if not value:
-        return now_utc()
+        raise ValueError("Timestamp is missing or empty. Cannot substitute current time for sensor data.")
 
     dt = dateutil.parser.isoparse(value)
 
