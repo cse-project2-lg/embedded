@@ -26,8 +26,6 @@ def main() -> None:
     def shutdown(signum, frame):
         logger.info("Shutdown signal received: %s", signum)
         bridge.stop()
-        writer.close()
-        sys.exit(0)
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
