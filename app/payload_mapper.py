@@ -9,6 +9,13 @@ from app.time_utils import parse_iso_datetime
 logger = logging.getLogger(__name__)
 
 
+def _require_non_empty_str(data: dict[str, Any], key: str) -> str:
+    value = data.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{key} is required")
+    return value
+
+
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
         if value is None:
@@ -46,8 +53,8 @@ def sensor_raw_to_point(data: dict[str, Any]) -> Point:
 
     return (
         Point("sensor_raw")
-        .tag("device_id", str(data.get("deviceId") or "UNKNOWN_DEV"))
-        .tag("source", str(data.get("source") or "UNKNOWN_SRC"))
+        .tag("device_id", _require_non_empty_str(data, "deviceId"))
+        .tag("source", _require_non_empty_str(data, "source"))
         .field("seq", _safe_int(data.get("seq")))
         .field("sample_interval_ms", _safe_int(data.get("sampleIntervalMs"), 100))
         .field("pir_motion", _safe_bool(sensors.get("pirMotion")))
@@ -68,9 +75,9 @@ def csi_raw_to_point(data: dict[str, Any]) -> Point:
 
     return (
         Point("csi_raw")
-        .tag("device_id", str(data.get("deviceId") or "UNKNOWN_DEV"))
-        .tag("source", str(data.get("source") or "UNKNOWN_SRC"))
-        .tag("interface", str(data.get("interface") or "wlan0"))
+        .tag("device_id", _require_non_empty_str(data, "deviceId"))
+        .tag("source", _require_non_empty_str(data, "source"))
+        .tag("interface", _require_non_empty_str(data, "interface"))
         .field("packet_id", str(data.get("packetId") or ""))
         .field("collector_session_id", str(data.get("collectorSessionId") or ""))
         .field("seq", _safe_int(data.get("seq")))
