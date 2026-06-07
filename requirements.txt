@@ -1,6 +1,8 @@
+influxdb-client==1.49.0
+paho-mqtt
+python-dateutil==2.9.0.post0
+python-dotenv==1.0.1
 pyserial
 numpy
 scipy
-paho-mqtt
 requests
-python-dotenv
