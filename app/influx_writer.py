@@ -1,4 +1,7 @@
 import logging
+import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 from influxdb_client import InfluxDBClient, Point, WriteOptions
 
@@ -50,10 +53,30 @@ class InfluxWriter:
         )
 
     def close(self) -> None:
+        flush_success = False
+        for attempt in range(3):
+            try:
+                self._write_api.flush()
+                flush_success = True
+                break
+            except Exception as flush_exc:
+                if attempt == 2:
+                    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                    backup_path = Path(f"emergency_influx_backup_{ts}_influx_writer.log").resolve()
+                    logger.error("Failed to flush InfluxDB buffer after 3 attempts - data may be lost. Emergency backup file path: %s. Error: %s", backup_path, flush_exc)
+                else:
+                    time.sleep(0.5 * (attempt + 1))
+
         try:
-            self._write_api.flush()
             self._write_api.close()
+        except Exception as api_exc:
+            logger.warning("Failed to close write_api cleanly: %s", api_exc)
+
+        try:
             self._client.close()
             logger.info("InfluxDB connection closed.")
-        except Exception as exc:
-            logger.warning("Failed to close InfluxDB cleanly: %s", exc)
+        except Exception as client_exc:
+            logger.warning("Failed to close InfluxDB client cleanly: %s", client_exc)
+
+        if not flush_success:
+            raise RuntimeError("Failed to flush InfluxDB buffer cleanly before shutdown.")
