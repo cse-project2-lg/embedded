@@ -25,16 +25,17 @@ def main() -> None:
 
     def shutdown(signum, frame):
         logger.info("Shutdown signal received: %s", signum)
-        bridge.stop()
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
     try:
         bridge.start()
+        signal.pause()
     except KeyboardInterrupt:
         logger.info("Interrupted by user.")
     finally:
+        bridge.stop()
         writer.close()
 
 
