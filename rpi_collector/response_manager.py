@@ -41,6 +41,8 @@ from enums import (
 )
 from mqtt_client import create_mqtt_client, parse_json_message, publish_json
 
+import pygame
+import time
 
 client = create_mqtt_client("response-manager")
 
@@ -82,8 +84,16 @@ def classify_user_response(transcript: str, expected_ok_text: List[str]) -> str:
 
 def play_prompt_asset(prompt_asset: str) -> None:
     """Play a local MP3 asset. Stubbed for MVP integration tests."""
-    # TODO: connect mpg123, pygame, or local speaker output.
-    print(f"MP3 재생 예정: {prompt_asset}")
+    print(f"MP3 재생: {prompt_asset}")
+
+    pygame.mixer.music.load(prompt_asset)
+
+    pygame.mixer.music.play()
+
+    while pygame.mixer.music.get_busy():
+        time.sleep(0.1)
+
+    print(f"MP3 재생 완료: {prompt_asset}")
 
 
 def listen_user_transcript(timeout_sec: int) -> str:
