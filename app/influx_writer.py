@@ -18,20 +18,26 @@ class InfluxWriter:
         if not settings.influx_org:
             raise ValueError("INFLUX_ORG is empty. Please set it in .env.")
 
+        if not settings.influx_bucket:
+            raise ValueError("INFLUX_BUCKET is empty. Please set it in .env.")
+
         self._client = InfluxDBClient(
             url=settings.influx_url,
             token=settings.influx_token,
             org=settings.influx_org,
+            timeout=10000,
         )
+
+        self._client.ping()
 
         self._write_api = self._client.write_api(
             write_options=WriteOptions(
-                batch_size=500,
-                flush_interval=1_000,
-                jitter_interval=200,
-                retry_interval=5_000,
+                batch_size=100,
+                flush_interval=5000,
+                jitter_interval=0,
+                retry_interval=1000,
                 max_retries=5,
-                max_retry_delay=30_000,
+                max_retry_delay=30000,
                 exponential_base=2,
             )
         )
