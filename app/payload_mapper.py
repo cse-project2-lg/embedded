@@ -31,7 +31,7 @@ def _safe_int(value: Any, default: int = 0, required: bool = False) -> int:
         return default
 
 
-def _safe_bool(value: Any, default: bool = False) -> bool:
+def _safe_bool(value: Any, default: bool = False, raise_on_invalid: bool = False) -> bool:
     if isinstance(value, bool):
         return value
 
@@ -41,9 +41,14 @@ def _safe_bool(value: Any, default: bool = False) -> bool:
             return True
         if normalized in {"false", "0", "no", "n"}:
             return False
+        if raise_on_invalid:
+            raise ValueError(f"Unrecognized boolean string value: {value}")
 
     if value is None:
         return default
+
+    if raise_on_invalid:
+        raise ValueError(f"Invalid boolean type input: {type(value).__name__} ({value})")
 
     return bool(value)
 
@@ -63,14 +68,14 @@ def sensor_raw_to_point(data: dict[str, Any]) -> Point:
         .tag("source", _require_non_empty_str(data, "source"))
         .field("seq", _safe_int(data.get("seq"), required=True))
         .field("sample_interval_ms", _safe_int(data.get("sampleIntervalMs"), 100, required=True))
-        .field("pir_motion", _safe_bool(sensors.get("pirMotion")))
+        .field("pir_motion", _safe_bool(sensors.get("pirMotion"), raise_on_invalid=True))
         .field("pir_value", _safe_int(sensors.get("pirValue")))
         .field("tof_distance_mm", _safe_int(sensors.get("tofDistanceMm")))
-        .field("tof_valid", _safe_bool(sensors.get("tofValid"), False))
-        .field("tof_timeout", _safe_bool(sensors.get("tofTimeout")))
+        .field("tof_valid", _safe_bool(sensors.get("tofValid"), False, raise_on_invalid=True))
+        .field("tof_timeout", _safe_bool(sensors.get("tofTimeout"), raise_on_invalid=True))
         .field("tof_error", tof_error_text)
         .field("wifi_rssi_dbm", _safe_int(transport.get("wifiRssiDbm")))
-        .field("ping_ok", _safe_bool(transport.get("pingOk"), False))
+        .field("ping_ok", _safe_bool(transport.get("pingOk"), False, raise_on_invalid=True))
         .field("received_monotonic_ns", _safe_int(data.get("mqttReceivedMonotonicNs"), required=True))
         .time(timestamp, WritePrecision.NS)
     )
