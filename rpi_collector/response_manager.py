@@ -44,6 +44,11 @@ from mqtt_client import create_mqtt_client, parse_json_message, publish_json
 import pygame
 import time
 
+import whisper
+import sounddevice as sd
+
+from scipy.io.wavfile import write
+
 client = create_mqtt_client("response-manager")
 
 
@@ -98,9 +103,34 @@ def play_prompt_asset(prompt_asset: str) -> None:
 
 def listen_user_transcript(timeout_sec: int) -> str:
     """Return STT transcript. Stubbed by STUB_STT_TRANSCRIPT env value."""
-    # TODO: connect microphone + Whisper STT.
+    
     print(f"사용자 음성 응답 대기: {timeout_sec}초")
-    return STUB_STT_TRANSCRIPT
+    sample_rate = 16000
+
+    audio_file = "response.wav"
+
+    recording = sd.rec(
+        int(timeout_sec * sample_rate),
+        samplerate=sample_rate,
+        channels=1,
+        dtype="int16"
+    )
+
+    sd.wait()
+
+    write(audio_file, sample_rate, recording)
+
+    result = model.transcribe(
+        audio_file,
+        language="ko",
+        fp16=False
+    )
+
+    transcript = result["text"].strip()
+
+    print(f"STT 결과: {transcript}")
+
+    return transcript
 
 
 def build_verification_record(
