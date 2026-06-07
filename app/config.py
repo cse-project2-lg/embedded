@@ -23,13 +23,19 @@ class Settings:
     csi_raw_topic: str = "/csi/raw"
 
 
+_settings_instance: Settings | None = None
+
+
 def get_settings() -> Settings:
-    return Settings(
-        mqtt_broker=os.getenv("MQTT_BROKER", "localhost"),
-        mqtt_port=int(os.getenv("MQTT_PORT", "1883")),
-        influx_url=os.getenv("INFLUX_URL", "http://localhost:8086"),
-        influx_token=os.getenv("INFLUX_TOKEN", ""),
-        influx_org=os.getenv("INFLUX_ORG", ""),
-        influx_bucket=os.getenv("INFLUX_BUCKET", "fall_detection"),
-        log_level=os.getenv("LOG_LEVEL", "INFO"),
-    )
+    global _settings_instance
+    if _settings_instance is None:
+        _settings_instance = Settings(
+            mqtt_broker=os.getenv("MQTT_BROKER", "localhost"),
+            mqtt_port=int(os.getenv("MQTT_PORT", "1883")),
+            influx_url=os.getenv("INFLUX_URL", "http://localhost:8086"),
+            influx_token=os.getenv("INFLUX_TOKEN", ""),
+            influx_org=os.getenv("INFLUX_ORG", ""),
+            influx_bucket=os.getenv("INFLUX_BUCKET", "fall_detection"),
+            log_level=os.getenv("LOG_LEVEL", "INFO"),
+        )
+    return _settings_instance
