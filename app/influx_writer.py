@@ -31,7 +31,11 @@ class InfluxWriter:
             timeout=10000,
         )
 
-        self._client.ping()
+        if not self._client.ping():
+            self._client.close()
+            raise ConnectionError(
+                f"InfluxDB ping failed: {settings.influx_url}"
+            )
 
         self._write_api = self._client.write_api(
             write_options=WriteOptions(
