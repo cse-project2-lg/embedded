@@ -54,14 +54,21 @@ class MqttInfluxBridge:
             data = json.loads(payload)
 
             if topic == self._settings.sensor_raw_topic:
-                point = sensor_raw_to_point(data)
+                try:
+                    point = sensor_raw_to_point(data)
+                    self._writer.write_point(point)
+                except (KeyError, ValueError, TypeError) as e:
+                    logger.error("Payload validation failed for %s: %s", topic, e)
             elif topic == self._settings.csi_raw_topic:
-                point = csi_raw_to_point(data)
+                try:
+                    point = csi_raw_to_point(data)
+                    self._writer.write_point(point)
+                except (KeyError, ValueError, TypeError) as e:
+                    logger.error("Payload validation failed for %s: %s", topic, e)
             else:
                 logger.warning("Unhandled MQTT topic: %s", topic)
                 return
 
-            self._writer.write_point(point)
             logger.debug("InfluxDB point queued from topic=%s", topic)
 
         except json.JSONDecodeError:
@@ -76,7 +83,7 @@ class MqttInfluxBridge:
             self._settings.mqtt_port,
         )
 
-        self._client.connect(
+        self._client.connect_async(
             self._settings.mqtt_broker,
             self._settings.mqtt_port,
             keepalive=60,
