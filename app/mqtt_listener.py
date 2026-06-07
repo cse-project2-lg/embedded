@@ -33,8 +33,8 @@ class MqttInfluxBridge:
             )
 
             topics = [
-                (self._settings.sensor_raw_topic, 0),
-                (self._settings.csi_raw_topic, 0),
+                (self._settings.sensor_raw_topic, 1),
+                (self._settings.csi_raw_topic, 1),
             ]
 
             client.subscribe(topics)
