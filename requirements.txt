@@ -1,8 +1,8 @@
 influxdb-client==1.49.0
 paho-mqtt==2.1.0
 python-dateutil==2.9.0.post0
-python-dotenv==1.0.1pyserial
+python-dotenv==1.0.1
+pyserial
 numpy
 scipy
-paho-mqtt
 requests
