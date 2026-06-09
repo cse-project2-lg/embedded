@@ -1,3 +1,10 @@
 paho-mqtt
 requests
 python-dotenv
+
+pygame
+sounddevice
+scipy
+numpy
+
+openai-whisper

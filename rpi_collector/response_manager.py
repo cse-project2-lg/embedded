@@ -12,6 +12,9 @@ to the cloud service and records the returned notification.result in
 """
 
 from __future__ import annotations
+from pathlib import Path
+
+import os
 
 import re
 from datetime import datetime, timezone
@@ -27,7 +30,6 @@ from config import (
     NOTIFICATION_REQUEST_URL,
     NOTIFICATION_TIMEOUT_SEC,
     ROOM_ID,
-    STUB_STT_TRANSCRIPT,
     TOPIC_ANALYSIS_RESULT,
     TOPIC_RESPONSE_OUTCOME,
 )
@@ -49,9 +51,19 @@ import sounddevice as sd
 
 from scipy.io.wavfile import write
 
+pygame.mixer.init(
+    frequency=48000,
+    channels=2
+)
+
+print("Whisper 모델 로딩...")
+model = whisper.load_model("tiny")
+print("Whisper 모델 로딩 완료")
+
+BASE_DIR = Path(__file__).resolve().parent
+WARNING_SOUND = BASE_DIR / "sounds" / "warning.mp3"
+
 client = create_mqtt_client("response-manager")
-
-
 def now_iso_millis() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="milliseconds")
 
@@ -88,32 +100,44 @@ def classify_user_response(transcript: str, expected_ok_text: List[str]) -> str:
 
 
 def play_prompt_asset(prompt_asset: str) -> None:
-    """Play a local MP3 asset. Stubbed for MVP integration tests."""
-    print(f"MP3 재생: {prompt_asset}")
 
-    pygame.mixer.music.load(prompt_asset)
+    asset_path = Path(prompt_asset)
 
+    if not asset_path.is_absolute():
+        asset_path = BASE_DIR / "sounds" / asset_path.name
+
+    if not asset_path.exists():
+        print(f"MP3 파일을 찾을 수 없음: {asset_path}")
+        return
+
+    print(f"MP3 재생: {asset_path}")
+
+    pygame.mixer.music.load(str(asset_path))
     pygame.mixer.music.play()
 
     while pygame.mixer.music.get_busy():
         time.sleep(0.1)
 
-    print(f"MP3 재생 완료: {prompt_asset}")
+    print(f"MP3 재생 완료: {asset_path}")
 
 
 def listen_user_transcript(timeout_sec: int) -> str:
-    """Return STT transcript. Stubbed by STUB_STT_TRANSCRIPT env value."""
-    
-    print(f"사용자 음성 응답 대기: {timeout_sec}초")
-    sample_rate = 16000
 
-    audio_file = "response.wav"
+    os.makedirs("recordings", exist_ok=True)
+
+    print(f"사용자 음성 응답 대기: {timeout_sec}초")
+
+    sample_rate = 48000
+    device_id = 1
+
+    audio_file = "recordings/response.wav"
 
     recording = sd.rec(
         int(timeout_sec * sample_rate),
         samplerate=sample_rate,
         channels=1,
-        dtype="int16"
+        dtype="int16",
+        device=device_id
     )
 
     sd.wait()
