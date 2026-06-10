@@ -51,14 +51,37 @@ import sounddevice as sd
 
 from scipy.io.wavfile import write
 
-pygame.mixer.init(
-    frequency=48000,
-    channels=2
-)
+_mixer_initialized = False
+_model = None
 
-print("Whisper 모델 로딩...")
-model = whisper.load_model("tiny")
-print("Whisper 모델 로딩 완료")
+
+def init_mixer():
+    global _mixer_initialized
+
+    if not _mixer_initialized:
+        try:
+            pygame.mixer.init(
+                frequency=48000,
+                channels=2
+            )
+            _mixer_initialized = True
+            print("pygame mixer 초기화 완료")
+
+        except Exception as exc:
+            raise RuntimeError(
+                f"pygame mixer 초기화 실패: {exc}"
+            )
+
+
+def get_whisper_model():
+    global _model
+
+    if _model is None:
+        print("Whisper 모델 로딩...")
+        _model = whisper.load_model("tiny")
+        print("Whisper 모델 로딩 완료")
+
+    return _model
 
 BASE_DIR = Path(__file__).resolve().parent
 WARNING_SOUND = BASE_DIR / "sounds" / "warning.mp3"
@@ -110,15 +133,21 @@ def play_prompt_asset(prompt_asset: str) -> None:
         print(f"MP3 파일을 찾을 수 없음: {asset_path}")
         return
 
-    print(f"MP3 재생: {asset_path}")
+    try:
+        init_mixer()
 
-    pygame.mixer.music.load(str(asset_path))
-    pygame.mixer.music.play()
+        print(f"MP3 재생: {asset_path}")
 
-    while pygame.mixer.music.get_busy():
-        time.sleep(0.1)
+        pygame.mixer.music.load(str(asset_path))
+        pygame.mixer.music.play()
 
-    print(f"MP3 재생 완료: {asset_path}")
+        while pygame.mixer.music.get_busy():
+            time.sleep(0.1)
+
+        print(f"MP3 재생 완료: {asset_path}")
+
+    except Exception as exc:
+        print(f"MP3 재생 실패: {exc}")
 
 
 def listen_user_transcript(timeout_sec: int) -> str:
@@ -128,33 +157,49 @@ def listen_user_transcript(timeout_sec: int) -> str:
     print(f"사용자 음성 응답 대기: {timeout_sec}초")
 
     sample_rate = 48000
-    device_id = 1
+
+    device_env = os.getenv("AUDIO_DEVICE_ID")
+
+    device_id = (
+        int(device_env)
+        if device_env
+        else 1
+    )
 
     audio_file = "recordings/response.wav"
 
-    recording = sd.rec(
-        int(timeout_sec * sample_rate),
-        samplerate=sample_rate,
-        channels=1,
-        dtype="int16",
-        device=device_id
-    )
+    try:
+        recording = sd.rec(
+            int(timeout_sec * sample_rate),
+            samplerate=sample_rate,
+            channels=1,
+            dtype="int16",
+            device=device_id
+        )
 
-    sd.wait()
+        sd.wait()
 
-    write(audio_file, sample_rate, recording)
+        write(audio_file, sample_rate, recording)
 
-    result = model.transcribe(
-        audio_file,
-        language="ko",
-        fp16=False
-    )
+        result = get_whisper_model().transcribe(
+            audio_file,
+            language="ko",
+            fp16=False
+        )
 
-    transcript = result["text"].strip()
+        transcript = result["text"].strip()
 
-    print(f"STT 결과: {transcript}")
+        print(f"STT 결과: {transcript}")
 
-    return transcript
+        return transcript
+
+    except Exception as exc:
+
+        print(
+            f"음성 녹음 또는 STT 처리 중 오류 발생: {exc}"
+        )
+
+        return ""
 
 
 def build_verification_record(
