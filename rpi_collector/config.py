@@ -44,3 +44,43 @@ DEFAULT_NOTIFICATION_CHANNELS = [
     for channel in os.getenv("DEFAULT_NOTIFICATION_CHANNELS", "KAKAO,SMS").split(",")
     if channel.strip()
 ]
+
+# RPi Nexmon CSI raw stream.
+# /csi/raw is an internal raw MQTT topic for the preprocessing/synchronization team.
+TOPIC_CSI_RAW = os.getenv("TOPIC_CSI_RAW", "/csi/raw")
+CSI_UDP_BIND_HOST = os.getenv("CSI_UDP_BIND_HOST", "0.0.0.0")
+CSI_UDP_PORT = int(os.getenv("CSI_UDP_PORT", "5500"))
+CSI_INTERFACE = os.getenv("CSI_INTERFACE", "wlan0")
+CSI_RAW_LOG_DIR = os.getenv("CSI_RAW_LOG_DIR", "./data/csi_raw")
+CSI_MQTT_PUBLISH_ENABLED = os.getenv("CSI_MQTT_PUBLISH_ENABLED", "true").lower() in {"1", "true", "yes", "y"}
+CSI_MQTT_QOS = int(os.getenv("CSI_MQTT_QOS", "1"))
+
+# Combined raw MQTT subscriber logs. This is still communication/raw-ingress only,
+# not preprocessing or synchronization.
+MQTT_RAW_LOG_DIR = os.getenv("MQTT_RAW_LOG_DIR", "./data/mqtt_raw")
+
+# Timestamp-based synced frame output for preprocessing handoff.
+# This is the boundary between raw MQTT messages and the preprocessing team's
+# 5-second windowing/feature extraction module.
+TOPIC_SYNCED_FRAME = os.getenv("TOPIC_SYNCED_FRAME", "/preprocess/synced_frame")
+SYNC_FRAME_LOG_DIR = os.getenv("SYNC_FRAME_LOG_DIR", "./data/synced_frames")
+SYNC_FRAME_PUBLISH_ENABLED = os.getenv("SYNC_FRAME_PUBLISH_ENABLED", "true").lower() in {"1", "true", "yes", "y"}
+SYNC_FRAME_QOS = int(os.getenv("SYNC_FRAME_QOS", "1"))
+
+# One synced.frame is emitted per /sensor/raw sample. For the first sensor sample,
+# CSI packets from this lookback range are attached. After that, each frame uses
+# the range between the previous sensor timestamp and the current sensor timestamp.
+SYNC_CSI_LOOKBACK_MS = int(os.getenv("SYNC_CSI_LOOKBACK_MS", "100"))
+
+# Delay emission slightly so MQTT callback ordering jitter does not make a frame
+# miss CSI packets that arrived almost at the same time as the sensor sample.
+SYNC_FRAME_EMIT_DELAY_MS = int(os.getenv("SYNC_FRAME_EMIT_DELAY_MS", "50"))
+
+# Keep CSI packets in memory long enough for timestamp matching and debugging.
+SYNC_CSI_RETENTION_MS = int(os.getenv("SYNC_CSI_RETENTION_MS", "5000"))
+
+# Deprecated compatibility flag. Final synced.frame contract stays lightweight and
+# always sends csiRawRefs only. Full CSI raw payloads stay in CSI_RAW_LOG_DIR and
+# can be retrieved by packetId/rawLogFile when needed.
+SYNC_FRAME_INCLUDE_CSI_PAYLOAD = os.getenv("SYNC_FRAME_INCLUDE_CSI_PAYLOAD", "false").lower() in {"1", "true", "yes", "y"}
+SYNC_FRAME_MAX_CSI_PACKETS = int(os.getenv("SYNC_FRAME_MAX_CSI_PACKETS", "200"))
