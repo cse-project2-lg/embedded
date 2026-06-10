@@ -1,8 +1,15 @@
 influxdb-client==1.49.0
+
 paho-mqtt
-python-dateutil==2.9.0.post0
+requests
 python-dotenv==1.0.1
+
+pygame
+sounddevice
 pyserial
+
 numpy
 scipy
-requests
+
+openai-whisper
+python-dateutil==2.9.0.post0

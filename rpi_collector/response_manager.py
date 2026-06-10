@@ -12,6 +12,9 @@ to the cloud service and records the returned notification.result in
 """
 
 from __future__ import annotations
+from pathlib import Path
+
+import os
 
 import re
 from datetime import datetime, timezone
@@ -28,7 +31,6 @@ from config import (
     NOTIFICATION_REQUEST_URL,
     NOTIFICATION_TIMEOUT_SEC,
     ROOM_ID,
-    STUB_STT_TRANSCRIPT,
     TOPIC_ANALYSIS_RESULT,
     TOPIC_RESPONSE_OUTCOME,
 )
@@ -42,10 +44,50 @@ from enums import (
 )
 from mqtt_client import create_mqtt_client, parse_json_message, publish_json
 
+import pygame
+import time
+
+import whisper
+import sounddevice as sd
+
+from scipy.io.wavfile import write
+
+_mixer_initialized = False
+_model = None
+
+
+def init_mixer():
+    global _mixer_initialized
+
+    if not _mixer_initialized:
+        try:
+            pygame.mixer.init(
+                frequency=48000,
+                channels=2
+            )
+            _mixer_initialized = True
+            print("pygame mixer 초기화 완료")
+
+        except Exception as exc:
+            raise RuntimeError(
+                f"pygame mixer 초기화 실패: {exc}"
+            )
+
+
+def get_whisper_model():
+    global _model
+
+    if _model is None:
+        print("Whisper 모델 로딩...")
+        _model = whisper.load_model("tiny")
+        print("Whisper 모델 로딩 완료")
+
+    return _model
+
+BASE_DIR = Path(__file__).resolve().parent
+WARNING_SOUND = BASE_DIR / "sounds" / "warning.mp3"
 
 client = create_mqtt_client("response-manager")
-
-
 def now_iso_millis() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="milliseconds")
 
@@ -82,16 +124,83 @@ def classify_user_response(transcript: str, expected_ok_text: List[str]) -> str:
 
 
 def play_prompt_asset(prompt_asset: str) -> None:
-    """Play a local MP3 asset. Stubbed for MVP integration tests."""
-    # TODO: connect mpg123, pygame, or local speaker output.
-    print(f"MP3 재생 예정: {prompt_asset}")
+
+    asset_path = Path(prompt_asset)
+
+    if not asset_path.is_absolute():
+        asset_path = BASE_DIR / "sounds" / asset_path.name
+
+    if not asset_path.exists():
+        print(f"MP3 파일을 찾을 수 없음: {asset_path}")
+        return
+
+    try:
+        init_mixer()
+
+        print(f"MP3 재생: {asset_path}")
+
+        pygame.mixer.music.load(str(asset_path))
+        pygame.mixer.music.play()
+
+        while pygame.mixer.music.get_busy():
+            time.sleep(0.1)
+
+        print(f"MP3 재생 완료: {asset_path}")
+
+    except Exception as exc:
+        print(f"MP3 재생 실패: {exc}")
 
 
 def listen_user_transcript(timeout_sec: int) -> str:
-    """Return STT transcript. Stubbed by STUB_STT_TRANSCRIPT env value."""
-    # TODO: connect microphone + Whisper STT.
+
+    os.makedirs("recordings", exist_ok=True)
+
     print(f"사용자 음성 응답 대기: {timeout_sec}초")
-    return STUB_STT_TRANSCRIPT
+
+    sample_rate = 48000
+
+    device_env = os.getenv("AUDIO_DEVICE_ID")
+
+    device_id = (
+        int(device_env)
+        if device_env
+        else 1
+    )
+
+    audio_file = "recordings/response.wav"
+
+    try:
+        recording = sd.rec(
+            int(timeout_sec * sample_rate),
+            samplerate=sample_rate,
+            channels=1,
+            dtype="int16",
+            device=device_id
+        )
+
+        sd.wait()
+
+        write(audio_file, sample_rate, recording)
+
+        result = get_whisper_model().transcribe(
+            audio_file,
+            language="ko",
+            fp16=False
+        )
+
+        transcript = result["text"].strip()
+
+        print(f"STT 결과: {transcript}")
+
+        return transcript
+
+    except Exception as exc:
+
+        print(
+            f"음성 녹음 또는 STT 처리 중 오류 발생: {exc}"
+        )
+
+        return ""
 
 
 def build_verification_record(
