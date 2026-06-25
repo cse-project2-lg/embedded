@@ -32,10 +32,7 @@ ROOM_ID = os.getenv("ROOM_ID", "living-room")
 REQUEST_TIMEOUT_SEC = float(os.getenv("REQUEST_TIMEOUT_SEC", "30"))
 NOTIFICATION_TIMEOUT_SEC = float(os.getenv("NOTIFICATION_TIMEOUT_SEC", "10"))
 DEFAULT_VERIFICATION_TIMEOUT_SEC = int(os.getenv("DEFAULT_VERIFICATION_TIMEOUT_SEC", "10"))
-DEFAULT_PROMPT_ASSET = os.getenv("DEFAULT_PROMPT_ASSET", "are_you_ok_ko.mp3")
-
-# Stub STT input for integration tests. Empty value means no response.
-STUB_STT_TRANSCRIPT = os.getenv("STUB_STT_TRANSCRIPT", "")
+DEFAULT_PROMPT_ASSET = os.getenv("DEFAULT_PROMPT_ASSET", "sounds/warning.mp3")
 
 # Raw input logging. This is not preprocessing; it is only for debugging/replay.
 RAW_LOG_DIR = os.getenv("RAW_LOG_DIR", "./data/raw_sensor_logs")
