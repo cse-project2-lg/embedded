@@ -1,208 +1,220 @@
-// ESP32 Sensor Hub & CSI Traffic Generator
+// ESP32 Sensor Hub
 // - PIR Sensor
 // - Single ToF Sensor (VL53L1X)
-// - WiFi CSI Traffic Generation
-// - UART JSON Streaming
+// - Wi-Fi CSI traffic generation by Ping
+// - MQTT publish: /sensor/raw
+// Required Arduino libraries:
+// - PubSubClient
+// - ArduinoJson
+// - VL53L1X
+// - ESP32Ping
 
 #include <WiFi.h>
+#include <PubSubClient.h>
 #include <ESP32Ping.h>
 
 #include <Wire.h>
 #include <VL53L1X.h>
-
 #include <ArduinoJson.h>
 
-// WiFi 설정
-const char* ssid = "iptime";
-const char* password = "12345678";
+// Wi-Fi / MQTT settings
+const char* WIFI_SSID = "iptime";
+const char* WIFI_PASSWORD = "12345678";
+
+// AP address used only for generating Wi-Fi traffic for CSI capture.
 const char* AP_IP = "192.168.0.1";
 
-// PIN 설정
+// Raspberry Pi or local MQTT broker address.
+// Change this to your RPi MQTT broker IP.
+const char* MQTT_HOST = "192.168.0.100";
+const uint16_t MQTT_PORT = 1883;
+
+const char* DEVICE_ID = "ESP32-001";
+const char* MQTT_CLIENT_ID = "esp32-sensor-node";
+const char* TOPIC_SENSOR_RAW = "/sensor/raw";
+
+// =============================
+// Pin / sampling settings
+// =============================
 #define PIR_PIN 27
 
-// ToF 객체
+const uint32_t SAMPLE_INTERVAL_MS = 100;  // 10Hz PIR/ToF raw sample
+const uint32_t WIFI_RECONNECT_DELAY_MS = 1000;
+const uint32_t MQTT_RECONNECT_DELAY_MS = 1000;
+
+// =============================
+// Global objects
+// =============================
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient);
 VL53L1X tofSensor;
 
-// 전역 변수
-int prevDistance = -1;
+uint32_t seq = 0;
+uint32_t lastSampleAt = 0;
+uint32_t lastWiFiReconnectAt = 0;
+uint32_t lastMqttReconnectAt = 0;
 
-// WiFi 연결
 void setupWiFi() {
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-    }
-    Serial.println("WIFI OK");
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  Serial.print("WiFi connecting");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println();
+  Serial.print("WiFi connected. IP=");
+  Serial.println(WiFi.localIP());
 }
 
-// ToF 초기화
+void ensureWiFiConnected() {
+  if (WiFi.status() == WL_CONNECTED) {
+    return;
+  }
+
+  uint32_t now = millis();
+  if (now - lastWiFiReconnectAt < WIFI_RECONNECT_DELAY_MS) {
+    return;
+  }
+
+  lastWiFiReconnectAt = now;
+  Serial.println("WiFi reconnecting...");
+  WiFi.disconnect();
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+}
+
+void setupMqtt() {
+  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+  mqttClient.setBufferSize(512);
+}
+
+void ensureMqttConnected() {
+  if (mqttClient.connected()) {
+    return;
+  }
+
+  uint32_t now = millis();
+  if (now - lastMqttReconnectAt < MQTT_RECONNECT_DELAY_MS) {
+    return;
+  }
+
+  lastMqttReconnectAt = now;
+  Serial.print("MQTT connecting...");
+
+  if (mqttClient.connect(MQTT_CLIENT_ID)) {
+    Serial.println("OK");
+  } else {
+    Serial.print("FAILED, rc=");
+    Serial.println(mqttClient.state());
+  }
+}
 
 void setupToF() {
-    tofSensor.setTimeout(500);
+  tofSensor.setTimeout(500);
 
-    // ToF 초기화 실패 시 정지
-    if (!tofSensor.init()) {
-        Serial.println("TOF FAIL");
-        while (1) {
-            delay(10);
-        }
+  if (!tofSensor.init()) {
+    Serial.println("TOF INIT FAIL");
+    while (1) {
+      delay(10);
     }
+  }
 
-    // 연속 거리 측정 시작
-    tofSensor.startContinuous(50);
-    Serial.println("TOF OK");
+  tofSensor.startContinuous(50);
+  Serial.println("TOF OK");
 }
 
-// setup()
+bool generateCsiTraffic() {
+  IPAddress targetIP;
+  targetIP.fromString(AP_IP);
+
+  // This ping exists only to generate Wi-Fi packets.
+  // CSI itself is captured by Raspberry Pi / Nexmon, not by this MQTT JSON.
+  return Ping.ping(targetIP, 1);
+}
+
+void publishSensorRaw() {
+  bool pingOk = generateCsiTraffic();
+
+  bool pirMotion = digitalRead(PIR_PIN) == HIGH;
+
+  int distance = tofSensor.read();
+  bool tofTimeout = tofSensor.timeoutOccurred();
+
+  // VL53L1X invalid/error values can vary by library/hardware state.
+  // Keep raw validity explicit so RPi can decide how to handle it later.
+  bool tofValid = (!tofTimeout && distance > 0 && distance < 8190);
+
+  StaticJsonDocument<512> doc;
+
+  doc["type"] = "sensor.raw";
+  doc["source"] = "esp32_sensor_node";
+  doc["deviceId"] = DEVICE_ID;
+  doc["seq"] = seq++;
+  doc["sampleIntervalMs"] = SAMPLE_INTERVAL_MS;
+
+  JsonObject sensors = doc.createNestedObject("sensors");
+  sensors["pirMotion"] = pirMotion;
+  sensors["pirValue"] = pirMotion ? 1 : 0;
+
+  if (tofValid) {
+    sensors["tofDistanceMm"] = distance;
+    sensors["tofError"] = nullptr;
+  } else {
+    sensors["tofDistanceMm"] = nullptr;
+    sensors["tofError"] = tofTimeout ? "TIMEOUT" : "INVALID_RANGE";
+  }
+
+  sensors["tofValid"] = tofValid;
+  sensors["tofTimeout"] = tofTimeout;
+
+  JsonObject transport = doc.createNestedObject("transport");
+  transport["wifiRssiDbm"] = WiFi.RSSI();
+  transport["pingOk"] = pingOk;
+
+  char payload[512];
+  size_t payloadLen = serializeJson(doc, payload, sizeof(payload));
+
+  if (payloadLen == 0 || payloadLen >= sizeof(payload)) {
+    Serial.println("JSON serialize failed or payload too large");
+    return;
+  }
+
+  bool ok = mqttClient.publish(TOPIC_SENSOR_RAW, payload, false);
+
+  Serial.print(ok ? "MQTT PUB OK: " : "MQTT PUB FAIL: ");
+  Serial.println(payload);
+}
+
 void setup() {
-    // UART 시작
-    Serial.begin(115200);
-    delay(2000);
-    Serial.println("BOOT");
+  Serial.begin(115200);
+  delay(1000);
+  Serial.println("ESP32 sensor raw MQTT boot");
 
-    // I2C 시작
-    // SDA = GPIO21
-    // SCL = GPIO22
+  Wire.begin(21, 22);
+  Wire.setClock(100000);
 
-    Wire.begin(21, 22);
+  pinMode(PIR_PIN, INPUT_PULLDOWN);
 
-    // I2C 속도
-    Wire.setClock(100000);
+  setupWiFi();
+  setupMqtt();
+  setupToF();
 
-    // PIR 설정
-
-    // INPUT_PULLDOWN 중요
-    // PIR 없을 때 LOW 유지
-    pinMode(PIR_PIN, INPUT_PULLDOWN);
-
-    // WiFi 연결
-    setupWiFi();
-
-    // ToF 초기화
-    setupToF();
-
-    Serial.println("SYSTEM READY");
+  Serial.println("SYSTEM READY");
 }
 
-// loop()
 void loop() {
+  ensureWiFiConnected();
+  ensureMqttConnected();
+  mqttClient.loop();
 
-    // CSI용 Ping 전송
-    IPAddress targetIP;
-    targetIP.fromString(AP_IP);
+  uint32_t now = millis();
+  if (now - lastSampleAt >= SAMPLE_INTERVAL_MS) {
+    lastSampleAt = now;
 
-    // Ping 실행
-    bool pingResult =
-        Ping.ping(targetIP, 1);
-
-    // 1초마다 Ping 상태 출력
-
-    static unsigned long lastPingPrint = 0;
-    if (millis() - lastPingPrint > 1000) {
-        lastPingPrint = millis();
-        if (pingResult) {
-            Serial.println(
-                "!!!! PING OK !!!!"
-            );
-
-        } else {
-            Serial.println(
-                "XXXX PING FAIL XXXX"
-            );
-        }
+    if (WiFi.status() == WL_CONNECTED && mqttClient.connected()) {
+      publishSensorRaw();
     }
-
-    // ToF 거리 읽기
-    int distance = tofSensor.read();
-
-    // timeout 체크
-    if (tofSensor.timeoutOccurred()) {
-        Serial.println("TOF TIMEOUT");
-    }
-
-    // PIR 읽기
-
-    // 움직임 없으면 0
-    // 움직임 감지 시 1
-
-    bool motion =
-        digitalRead(PIR_PIN);
-
-    // 급격한 거리 감소 감지
-
-    bool suddenDrop = false;
-    if (prevDistance > 0 &&
-        distance > 0) {
-
-        int diff =
-            prevDistance - distance;
-
-        // 700mm 이상 감소 시
-
-        if (diff > 700) {
-            suddenDrop = true;
-        }
-    }
-
-    // 현재 거리 저장
-    prevDistance = distance;
-
-    // 낙상 후보 판단
-
-    bool fallCandidate = false;
-    if (motion && suddenDrop) {
-        fallCandidate = true;
-    }
-
-    // JSON 생성
-    StaticJsonDocument<512> doc;
-
-    doc["deviceId"] =
-        "esp32_sensor_hub";
-
-    doc["timestamp"] =
-        millis();
-
-    // 센서 데이터
-
-    JsonObject sensors =
-        doc.createNestedObject("sensors");
-
-    sensors["pir_motion"] =
-        motion;
-
-    sensors["tof_distance_mm"] =
-        distance;
-
-    // 분석 데이터
-
-    JsonObject analysis =
-        doc.createNestedObject("analysis");
-
-    analysis["sudden_drop"] =
-        suddenDrop;
-
-    analysis["fall_candidate"] =
-        fallCandidate;
-
-    // UART JSON 출력
-
-    serializeJson(doc, Serial);
-    Serial.println();
-
-    // 디버그 출력
-
-    Serial.print("Distance(mm): ");
-    Serial.println(distance);
-    Serial.print("Motion: ");
-    Serial.println(motion);
-    Serial.print("SuddenDrop: ");
-    Serial.println(suddenDrop);
-    Serial.print("FallCandidate: ");
-    Serial.println(fallCandidate);
-    Serial.println("----------------------");
-
-
-    // 100ms 주기
-    delay(100);
+  }
 }
