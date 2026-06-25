@@ -1,13 +1,13 @@
 // ESP32 Sensor Hub
-// - PIR Sensor
-// - Single ToF Sensor (VL53L1X)
-// - Wi-Fi CSI traffic generation by Ping
-// - MQTT publish: /sensor/raw
+    // - PIR Sensor
+    // - Single ToF Sensor (VL53L1X)
+    // - Wi-Fi CSI traffic generation by Ping
+    // - MQTT publish: /sensor/raw
 // Required Arduino libraries:
-// - PubSubClient
-// - ArduinoJson
-// - VL53L1X
-// - ESP32Ping
+    // - PubSubClient   
+    // - ArduinoJson
+    // - VL53L1X
+    // - ESP32Ping
 
 #include <WiFi.h>
 #include <PubSubClient.h>
@@ -18,33 +18,29 @@
 #include <ArduinoJson.h>
 
 // Wi-Fi / MQTT settings
-const char* WIFI_SSID = "iptime";
-const char* WIFI_PASSWORD = "12345678";
+const char* WIFI_SSID = "rasberrypi";
+const char* WIFI_PASSWORD = "wisasy23";
 
 // AP address used only for generating Wi-Fi traffic for CSI capture.
-const char* AP_IP = "192.168.0.1";
+const char* AP_IP = "192.168.137.64";
 
 // Raspberry Pi or local MQTT broker address.
 // Change this to your RPi MQTT broker IP.
-const char* MQTT_HOST = "192.168.0.100";
+const char* MQTT_HOST = "192.168.137.19";
 const uint16_t MQTT_PORT = 1883;
 
 const char* DEVICE_ID = "ESP32-001";
 const char* MQTT_CLIENT_ID = "esp32-sensor-node";
 const char* TOPIC_SENSOR_RAW = "/sensor/raw";
 
-// =============================
 // Pin / sampling settings
-// =============================
 #define PIR_PIN 27
 
 const uint32_t SAMPLE_INTERVAL_MS = 100;  // 10Hz PIR/ToF raw sample
 const uint32_t WIFI_RECONNECT_DELAY_MS = 1000;
 const uint32_t MQTT_RECONNECT_DELAY_MS = 1000;
 
-// =============================
 // Global objects
-// =============================
 WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient);
 VL53L1X tofSensor;
